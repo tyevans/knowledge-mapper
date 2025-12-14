@@ -14,7 +14,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSON
+from sqlalchemy.dialects.postgresql import UUID, JSON, ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -81,7 +81,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column(
             "provider_type",
-            sa.Enum(
+            ENUM(
                 "ollama",
                 "openai",
                 "anthropic",
@@ -173,7 +173,7 @@ def upgrade() -> None:
         sa.Column("response", sa.Text(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(
+            ENUM(
                 "pending",
                 "in_progress",
                 "completed",
