@@ -1,0 +1,3 @@
+# This directory stores database backups
+# Backups are excluded from git for security (contain sensitive data)
+# See scripts/db-backup.sh for backup management

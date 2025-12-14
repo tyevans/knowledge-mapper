@@ -1,0 +1,143 @@
+# Ingress for Knowledge Mapper
+#
+# Routes external traffic to backend and frontend services.
+# Configures TLS termination and common nginx settings.
+#
+# Prerequisites:
+# - Ingress controller (nginx-ingress recommended)
+# - cert-manager (optional, for automatic TLS certificates)
+# - DNS records pointing to your cluster's ingress IP
+#
+# Customize hosts and TLS settings in overlays for each environment.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: knowledge-mapper-ingress
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: ingress
+  annotations:
+    # ==========================================================================
+    # Ingress Class
+    # ==========================================================================
+    # Deprecated but still used by some older clusters
+    kubernetes.io/ingress.class: nginx
+
+    # ==========================================================================
+    # TLS Configuration
+    # ==========================================================================
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # cert-manager automatic certificate provisioning
+    # Uncomment and configure for Let's Encrypt
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # cert-manager.io/acme-challenge-type: "http01"
+
+    # ==========================================================================
+    # Proxy Settings
+    # ==========================================================================
+    # Maximum upload size (important for file uploads)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Timeout settings
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+
+    # Buffer settings
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+
+    # ==========================================================================
+    # Security Headers
+    # ==========================================================================
+    # Additional security headers (supplement application headers)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+
+    # ==========================================================================
+    # Rate Limiting (optional - uncomment to enable)
+    # ==========================================================================
+    # nginx.ingress.kubernetes.io/limit-rps: "100"
+    # nginx.ingress.kubernetes.io/limit-connections: "50"
+
+    # ==========================================================================
+    # CORS (optional - uncomment if backend doesn't handle CORS)
+    # ==========================================================================
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.example.com"
+    # nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    # nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+
+spec:
+  # Use nginx ingress controller
+  ingressClassName: nginx
+
+  # ==========================================================================
+  # TLS Configuration
+  # ==========================================================================
+  # Update hosts to match your domain names
+  # Secret should be created by cert-manager or manually
+  tls:
+    - hosts:
+        - app.example.com
+        - api.example.com
+      secretName: knowledge-mapper-tls
+
+  # ==========================================================================
+  # Routing Rules
+  # ==========================================================================
+  rules:
+    # Frontend - main application (app.example.com)
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+    # Backend API (api.example.com)
+    - host: api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+
+# =============================================================================
+# Alternative: Single Domain with Path-Based Routing
+# =============================================================================
+# If you prefer a single domain (e.g., app.example.com):
+#
+# rules:
+#   - host: app.example.com
+#     http:
+#       paths:
+#         # API routes to backend
+#         - path: /api
+#           pathType: Prefix
+#           backend:
+#             service:
+#               name: backend
+#               port:
+#                 number: 8000
+#         # All other routes to frontend
+#         - path: /
+#           pathType: Prefix
+#           backend:
+#             service:
+#               name: frontend
+#               port:
+#                 number: 80

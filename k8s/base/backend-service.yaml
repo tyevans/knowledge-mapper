@@ -1,0 +1,32 @@
+# Backend Service for Knowledge Mapper
+#
+# ClusterIP service exposing the backend API on port 8000.
+# Internal access only - external traffic routes through Ingress.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: backend
+  annotations:
+    # Service discovery for internal access
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+  # Session affinity (optional - useful for WebSocket connections)
+  # sessionAffinity: ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 3600

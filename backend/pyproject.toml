@@ -1,0 +1,160 @@
+[project]
+name = "knowledge-mapper-backend"
+version = "0.1.0"
+description = "Knowledge Mapper Backend API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # Core FastAPI dependencies
+    "fastapi==0.115.12",
+    "uvicorn[standard]==0.34.3",
+    "pydantic==2.11.7",
+    "pydantic-settings==2.9.1",
+    # Database
+    "asyncpg==0.30.0",
+    "sqlalchemy[asyncio]==2.0.41",
+    "alembic==1.15.2",
+    "psycopg2-binary==2.9.10",
+    # CORS and middleware
+    "python-multipart==0.0.20",
+    # Environment and configuration
+    "python-dotenv==1.1.0",
+    # JWT and OAuth
+    "pyjwt[crypto]==2.10.1",
+    "cryptography==45.0.4",
+    "authlib==1.6.0",
+    # Redis client
+    "redis[hiredis]==5.3.1",
+    "hiredis==3.1.1",
+    # Observability
+    "opentelemetry-api>=1.30.0,<2.0.0",
+    "opentelemetry-sdk>=1.30.0,<2.0.0",
+    "opentelemetry-exporter-otlp>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0,<1.0.0",
+    "prometheus-client>=0.21.1,<1.0.0",
+    "eventsource-py[all]>=0.4.0",
+    # Task Queue (Celery)
+    "celery[redis]==5.4.0",
+    "flower==2.0.1",
+    # Web Scraping
+    "scrapy==2.12.0",
+    # Knowledge Graph (Neo4j)
+    "neo4j==5.27.0",
+    # LLM Integration (Anthropic Claude)
+    "anthropic==0.42.0",
+    # Entity Extraction
+    "extruct==0.18.0",
+    "spacy>=3.7.0,<4.0.0",
+    "ollama>=0.6.1",
+    "pydantic-ai>=0.0.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest==8.3.5",
+    "pytest-asyncio==0.26.0",
+    "pytest-cov==6.1.1",
+    "httpx==0.28.1",
+
+    # Code quality
+    "ruff==0.11.12",
+
+    # Pre-commit hooks
+    "pre-commit>=4.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.26.0",
+    "pytest-cov==6.1.1",
+    "httpx==0.28.1",
+    "ruff==0.11.12",
+    "pre-commit>=4.2.0",
+]
+
+[tool.uv.sources]
+
+[project.scripts]
+# CLI entrypoints can be added here if needed
+# example = "app.cli:main"
+
+# Note: uv scripts are not yet supported in uv
+# For now, use `uv run` with commands directly:
+# - uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# - uv run pytest tests/ -v
+# - uv run ruff check .
+# - uv run alembic upgrade head
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: marks tests as integration tests (require external services)",
+    "unit: marks tests as unit tests (mocked dependencies)",
+    "accuracy: marks tests as accuracy tests (measure extraction precision/recall)",
+    "slow: marks tests as slow (may take longer to execute)",
+]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--disable-warnings",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.alembic]
+# Path to migration scripts
+script_location = "alembic"
+
+# Template used to generate migration file names
+# Timestamp-based naming for chronological ordering and team collaboration
+file_template = "%%(year)d%%(month).2d%%(day).2d_%%(hour).2d%%(minute).2d_%%(slug)s"
+
+# sys.path path, will be prepended to sys.path if present
+prepend_sys_path = "."
+
+# Version path separator
+version_path_separator = "os"
+
+# Database URL placeholder - overridden by env.py from application settings
+# The actual DATABASE_URL is loaded from app.core.config.settings
+[tool.alembic.sqlalchemy]
+url = "driver://user:pass@localhost/dbname"

@@ -1,0 +1,94 @@
+# Prometheus Configuration for Knowledge Mapper
+#
+# This configuration scrapes metrics from:
+# - Prometheus itself (self-monitoring)
+# - Backend API (FastAPI application metrics)
+# - Keycloak (authentication service metrics)
+# - Tempo (distributed tracing metrics)
+# - Loki (log aggregation metrics)
+#
+# For more information on Prometheus configuration:
+# https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+
+global:
+  # How frequently to scrape targets by default
+  scrape_interval: 15s
+
+  # How frequently to evaluate alerting and recording rules
+  evaluation_interval: 15s
+
+  # Attach these labels to any time series or alerts when communicating with
+  # external systems (federation, remote storage, Alertmanager)
+  external_labels:
+    cluster: 'knowledge-mapper'
+
+# -----------------------------------------------------------------------------
+# Alerting Rules Configuration
+# -----------------------------------------------------------------------------
+# Rule files specify groups of alerting and recording rules.
+# Rules are evaluated at the evaluation_interval defined above.
+rule_files:
+  - 'alerts.yml'
+
+# -----------------------------------------------------------------------------
+# Alertmanager Configuration (Optional)
+# -----------------------------------------------------------------------------
+# Configure Alertmanager for sending alert notifications.
+# Uncomment and configure when Alertmanager is deployed.
+#
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - 'alertmanager:9093'
+
+# Scrape configuration for each monitored service
+scrape_configs:
+  # -----------------------------------------------------------------------------
+  # Prometheus Self-Monitoring
+  # -----------------------------------------------------------------------------
+  # Prometheus exposes its own metrics for monitoring its health and performance
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # -----------------------------------------------------------------------------
+  # Backend API Metrics
+  # -----------------------------------------------------------------------------
+  # FastAPI application metrics exposed via the /metrics endpoint
+  # Uses a shorter scrape interval (5s) for responsive dashboards and alerting
+  - job_name: 'backend'
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # -----------------------------------------------------------------------------
+  # Keycloak Metrics
+  # -----------------------------------------------------------------------------
+  # Authentication service metrics from Keycloak
+  # Uses a longer scrape interval (30s) as these metrics change less frequently
+  # Note: Keycloak in development mode exposes limited metrics
+  - job_name: 'keycloak'
+    static_configs:
+      - targets: ['keycloak:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # -----------------------------------------------------------------------------
+  # Tempo Metrics (Distributed Tracing)
+  # -----------------------------------------------------------------------------
+  # Tempo exposes metrics about trace ingestion and storage
+  - job_name: 'tempo'
+    static_configs:
+      - targets: ['tempo:3200']
+    metrics_path: '/metrics'
+
+  # -----------------------------------------------------------------------------
+  # Loki Metrics (Log Aggregation)
+  # -----------------------------------------------------------------------------
+  # Loki exposes metrics about log ingestion and queries
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+    metrics_path: '/metrics'

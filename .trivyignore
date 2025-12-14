@@ -1,0 +1,18 @@
+# .trivyignore
+# Trivy vulnerability ignore file for Knowledge Mapper
+#
+# This file allows you to ignore specific CVEs that have been reviewed
+# and determined to be false positives or not applicable to your use case.
+#
+# Format: One CVE ID per line
+# Comments start with #
+#
+# IMPORTANT: Only add CVEs after careful review and documentation
+# Document the reason for ignoring each CVE
+#
+# See: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/
+
+# Example entries (uncomment and modify as needed):
+#
+# CVE-2023-XXXXX  # False positive - not using affected functionality
+# CVE-2024-XXXXX  # Mitigated by network isolation

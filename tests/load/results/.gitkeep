@@ -1,0 +1,2 @@
+# Keep this directory for k6 test results
+# Results are gitignored but the directory should exist

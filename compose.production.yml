@@ -1,0 +1,129 @@
+# Production Docker Compose Configuration
+#
+# This file is designed for production deployments WITHOUT Kubernetes.
+# For Kubernetes deployments, use the k8s/ manifests instead.
+#
+# Usage:
+#   1. Copy .env.production.example to .env.production
+#   2. Configure all required environment variables
+#   3. Run: docker compose -f compose.production.yml --env-file .env.production up -d
+#
+# Prerequisites:
+#   - External PostgreSQL database (managed service recommended)
+#   - External Redis instance (managed service recommended)
+#   - Reverse proxy/load balancer for TLS termination
+#   - Container registry access (ghcr.io or custom)
+
+services:
+  # Backend API (FastAPI)
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/OWNER/knowledge-mapper-backend}:${IMAGE_TAG:-latest}
+    container_name: knowledge-mapper-backend
+    restart: always
+    environment:
+      # Application
+      ENV: production
+      DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Database - Application Runtime (RLS enforced)
+      DATABASE_URL: ${DATABASE_URL}
+
+      # Database - Migrations (BYPASSRLS, run separately)
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
+
+      # Redis
+      REDIS_URL: ${REDIS_URL}
+
+      # API Configuration
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+
+      # OAuth Configuration
+      OAUTH_ISSUER_URL: ${OAUTH_ISSUER_URL}
+
+      # Security
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+
+      # OpenTelemetry (optional)
+      OTEL_SERVICE_NAME: backend
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '${BACKEND_CPU_LIMIT:-1.0}'
+          memory: ${BACKEND_MEMORY_LIMIT:-512M}
+        reservations:
+          cpus: '${BACKEND_CPU_RESERVATION:-0.25}'
+          memory: ${BACKEND_MEMORY_RESERVATION:-256M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - knowledge-mapper-network
+    # No volumes in production - stateless container
+
+  # Frontend (Nginx serving static files)
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/OWNER/knowledge-mapper-frontend}:${IMAGE_TAG:-latest}
+    container_name: knowledge-mapper-frontend
+    restart: always
+    environment:
+      # Note: VITE_* variables are build-time only
+      # Runtime configuration should use a config endpoint or env injection
+      NODE_ENV: production
+    ports:
+      # Frontend production image runs nginx on port 8080 (non-root)
+      - "${FRONTEND_PORT:-80}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '${FRONTEND_CPU_LIMIT:-0.5}'
+          memory: ${FRONTEND_MEMORY_LIMIT:-128M}
+        reservations:
+          cpus: '${FRONTEND_CPU_RESERVATION:-0.1}'
+          memory: ${FRONTEND_MEMORY_RESERVATION:-64M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - knowledge-mapper-network
+    # No volumes in production - stateless container
+
+networks:
+  knowledge-mapper-network:
+    name: knowledge-mapper-network
+    driver: bridge

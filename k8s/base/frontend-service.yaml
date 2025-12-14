@@ -1,0 +1,25 @@
+# Frontend Service for Knowledge Mapper
+#
+# ClusterIP service exposing the frontend on port 80.
+# Maps external port 80 to container port 8080 (non-privileged).
+# Internal access only - external traffic routes through Ingress.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      # Service exposes port 80 for standard HTTP
+      port: 80
+      # Routes to container port 8080 (non-privileged nginx)
+      targetPort: http
+      protocol: TCP

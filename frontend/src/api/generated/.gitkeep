@@ -1,0 +1,3 @@
+# This file ensures the generated/ directory exists in git.
+# The actual generated API client files will be created when you run:
+#   ./scripts/generate-api-client.sh

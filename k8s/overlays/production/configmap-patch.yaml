@@ -1,0 +1,40 @@
+# Production environment configuration overrides
+#
+# These values override the base ConfigMap for production-specific settings.
+# Info-level logging reduces log volume and improves performance.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knowledge-mapper-config
+data:
+  # =============================================================================
+  # Environment Settings
+  # =============================================================================
+  # Environment identifier
+  ENV: "production"
+
+  # Production logging - info level to reduce log volume
+  LOG_LEVEL: "info"
+  DEBUG: "false"
+
+  # =============================================================================
+  # OAuth/OIDC Configuration
+  # =============================================================================
+  # Production OAuth provider - update with your production Keycloak URL
+  OAUTH_ISSUER_URL: "https://auth.example.com/realms/knowledge-mapper-dev"
+
+  # =============================================================================
+  # Frontend Configuration
+  # =============================================================================
+  # Production frontend API URL
+  VITE_API_URL: "https://api.example.com"
+
+  # =============================================================================
+  # Production-specific Settings
+  # =============================================================================
+  # Stricter rate limiting in production
+  RATE_LIMIT_PER_MINUTE: "60"
+
+  # Cache settings for performance
+  CACHE_TTL_SECONDS: "300"

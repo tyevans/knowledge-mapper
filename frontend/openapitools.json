@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "spaces": 2,
+  "generator-cli": {
+    "version": "7.2.0",
+    "generators": {
+      "typescript-fetch": {
+        "generatorName": "typescript-fetch",
+        "output": "#{cwd}/src/api/generated",
+        "inputSpec": "#{cwd}/../backend/openapi.json",
+        "additionalProperties": {
+          "supportsES6": true,
+          "typescriptThreePlus": true,
+          "withInterfaces": true,
+          "useSingleRequestParameter": true,
+          "prefixParameterInterfaces": true,
+          "npmName": "knowledge-mapper-api-client",
+          "npmVersion": "0.0.1",
+          "enumPropertyNaming": "original"
+        },
+        "globalProperty": {
+          "apis": "",
+          "models": "",
+          "supportingFiles": "runtime.ts,index.ts"
+        }
+      }
+    }
+  }
+}

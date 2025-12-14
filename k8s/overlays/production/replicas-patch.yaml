@@ -1,0 +1,42 @@
+# Production replicas for high availability
+#
+# High availability configuration:
+# - Backend: 3 replicas (allows 1 failure + 1 updating)
+# - Frontend: 2 replicas (static assets, lower requirements)
+#
+# Zero-downtime rolling update strategy:
+# - maxSurge: 1 (one extra pod during update)
+# - maxUnavailable: 0 (always at full capacity)
+#
+# Combined with readiness probes, this ensures:
+# - No traffic to unready pods during deployment
+# - Automatic recovery from single pod failures
+# - Expected uptime: 99.9%
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 3
+  # Production deployment strategy for zero-downtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  # Production deployment strategy for zero-downtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0

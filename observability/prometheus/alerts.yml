@@ -1,0 +1,352 @@
+# Prometheus Alerting Rules for Knowledge Mapper
+#
+# These rules define conditions that trigger alerts when service health
+# or performance degrades. Alerts are evaluated every 15 seconds
+# (per prometheus.yml evaluation_interval).
+#
+# Alert severity levels:
+#   critical - Immediate response required, service degradation
+#   warning  - Investigation needed, potential issues
+#   info     - Informational, no immediate action
+#
+# For more information:
+# https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+
+groups:
+  # ===========================================================================
+  # Backend API Alerts
+  # ===========================================================================
+  - name: backend_alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # High Error Rate Alert
+      # -----------------------------------------------------------------------
+      # Triggers when HTTP 5xx error rate exceeds 1% of total requests
+      # for 5 consecutive minutes.
+      #
+      # Rationale: 1% error rate indicates systemic issues beyond occasional
+      # timeouts. 5 minute duration avoids false positives from brief spikes.
+      #
+      # Threshold Justification:
+      #   - 1% error rate is significant for most applications
+      #   - Below 1%: Normal operation with occasional transient failures
+      #   - Above 1%: Systemic issue requiring investigation
+      #   - 5m duration prevents alerting on brief traffic spikes or deploys
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="backend",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="backend"}[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "High error rate detected on backend API"
+          description: >-
+            Error rate is {{ printf "%.2f" $value }}% (threshold: 1%).
+            HTTP 5xx responses have exceeded 1% of total traffic for 5 minutes.
+            Check backend logs for exception details.
+          runbook_url: "{{ .ExternalURL }}/runbooks/high-error-rate.md"
+
+      # -----------------------------------------------------------------------
+      # High Latency Alert
+      # -----------------------------------------------------------------------
+      # Triggers when 95th percentile response time exceeds 2 seconds
+      # for 5 consecutive minutes.
+      #
+      # Rationale: p95 > 2s indicates degraded user experience. 5 minute
+      # duration accounts for legitimate traffic spikes.
+      #
+      # Threshold Justification:
+      #   - 2s is a widely-accepted threshold for user experience degradation
+      #   - Google research: 53% of mobile users abandon sites > 3s load time
+      #   - p95 chosen over p99 to catch issues affecting significant users
+      #   - 5m duration filters out transient spikes during traffic bursts
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="backend"}[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High latency detected on backend API"
+          description: >-
+            95th percentile latency is {{ printf "%.2f" $value }}s (threshold: 2s).
+            Most requests are completing slowly. Check for database query performance,
+            external service latency, or resource exhaustion (CPU, memory).
+          runbook_url: "{{ .ExternalURL }}/runbooks/high-latency.md"
+
+      # -----------------------------------------------------------------------
+      # Backend Service Down
+      # -----------------------------------------------------------------------
+      # Triggers when backend is unreachable for 1 minute.
+      #
+      # Threshold Justification:
+      #   - 1m is short enough for rapid response
+      #   - Long enough to avoid alerting during normal restarts
+      #   - up == 0 means Prometheus cannot scrape the target
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Backend API is down"
+          description: >-
+            Backend service has been unreachable for 1 minute.
+            Prometheus cannot scrape metrics from the backend.
+            Check container status and logs.
+          runbook_url: "{{ .ExternalURL }}/runbooks/service-down.md"
+
+  # ===========================================================================
+  # Database Alerts
+  # ===========================================================================
+  - name: database_alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # Database Connection Pool Exhausted (PostgreSQL Exporter)
+      # -----------------------------------------------------------------------
+      # Triggers when PostgreSQL connections approach the maximum limit.
+      # Uses 90% threshold to allow time for remediation.
+      #
+      # Threshold Justification:
+      #   - 90% utilization leaves buffer for new connections
+      #   - At 100%, new connections will be rejected causing failures
+      #   - 2m duration prevents alerting during connection pool warmup
+      #
+      # Note: This requires PostgreSQL metrics exposed via pg_exporter.
+      # If pg_exporter is not deployed, use SQLAlchemyPoolExhausted below.
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          (
+            pg_stat_activity_count{state!="idle"}
+            /
+            pg_settings_max_connections
+          ) > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: >-
+            Active database connections are at {{ printf "%.0f" $value }}% of max_connections.
+            New connections may be rejected. Consider increasing max_connections,
+            optimizing slow queries, or checking for connection leaks.
+          runbook_url: "{{ .ExternalURL }}/runbooks/db-connections.md"
+
+      # -----------------------------------------------------------------------
+      # Database Connection Pool (Application Level)
+      # -----------------------------------------------------------------------
+      # Alternative alert using SQLAlchemy pool metrics if pg_exporter
+      # is not deployed. Uses application-level connection pool statistics.
+      #
+      # Threshold Justification:
+      #   - 90% pool utilization indicates near-saturation
+      #   - Application pool typically smaller than DB max_connections
+      #   - 2m duration filters transient spikes during traffic bursts
+      - alert: SQLAlchemyPoolExhausted
+        expr: |
+          sqlalchemy_pool_checked_out{job="backend"}
+          /
+          sqlalchemy_pool_size{job="backend"}
+          > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "SQLAlchemy connection pool near exhaustion"
+          description: >-
+            Application connection pool is {{ printf "%.0f" $value }}% utilized.
+            Backend may experience connection wait times.
+          runbook_url: "{{ .ExternalURL }}/runbooks/db-connections.md"
+
+  # ===========================================================================
+  # Redis Alerts
+  # ===========================================================================
+  - name: redis_alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # Redis Connection Failure
+      # -----------------------------------------------------------------------
+      # Triggers when Redis becomes unreachable.
+      #
+      # Threshold Justification:
+      #   - 1m duration is short due to Redis criticality
+      #   - Redis failure affects rate limiting, caching, token revocation
+      #   - Immediate attention required to prevent cascading failures
+      - alert: RedisConnectionFailure
+        expr: redis_up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: redis
+        annotations:
+          summary: "Redis is unreachable"
+          description: >-
+            Redis has been unreachable for 1 minute.
+            This affects rate limiting (may fail open), token revocation checks,
+            and caching (performance degradation).
+          runbook_url: "{{ .ExternalURL }}/runbooks/redis-down.md"
+
+      # -----------------------------------------------------------------------
+      # Redis Memory Usage
+      # -----------------------------------------------------------------------
+      # Triggers when Redis memory usage exceeds 80% of maxmemory.
+      #
+      # Threshold Justification:
+      #   - 80% threshold allows time before eviction starts
+      #   - At 100% Redis will evict keys or reject writes
+      #   - 5m duration filters brief spikes during cache warming
+      - alert: RedisHighMemory
+        expr: |
+          redis_memory_used_bytes{job="redis"}
+          /
+          redis_memory_max_bytes{job="redis"}
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis memory usage high"
+          description: >-
+            Redis memory usage is {{ printf "%.0f" $value }}% of maxmemory.
+            Eviction policy may start removing keys.
+          runbook_url: "{{ .ExternalURL }}/runbooks/redis-down.md"
+
+  # ===========================================================================
+  # Authentication Service Alerts
+  # ===========================================================================
+  - name: keycloak_alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # Keycloak Down
+      # -----------------------------------------------------------------------
+      # Triggers when Keycloak authentication service becomes unreachable.
+      #
+      # Threshold Justification:
+      #   - 2m duration allows for brief restarts during updates
+      #   - Keycloak is critical for authentication but may have brief restarts
+      #   - Users with valid tokens continue working, only new logins fail
+      - alert: KeycloakDown
+        expr: up{job="keycloak"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: keycloak
+        annotations:
+          summary: "Keycloak authentication service is down"
+          description: >-
+            Keycloak has been unreachable for 2 minutes.
+            This affects new user logins (blocked), token refresh (may fail),
+            and JWKS retrieval (may use cached keys).
+          runbook_url: "{{ .ExternalURL }}/runbooks/keycloak-down.md"
+
+  # ===========================================================================
+  # Infrastructure Alerts
+  # ===========================================================================
+  - name: infrastructure_alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # High CPU Usage (Container Level)
+      # -----------------------------------------------------------------------
+      # Triggers when container CPU usage exceeds 80% of allocated quota.
+      #
+      # Threshold Justification:
+      #   - 80% is a standard warning threshold for capacity planning
+      #   - Allows headroom for traffic spikes
+      #   - 5m duration filters brief spikes during request processing
+      - alert: HighCPUUsage
+        expr: |
+          sum(rate(container_cpu_usage_seconds_total{name=~".+"}[5m])) by (name)
+          /
+          sum(container_spec_cpu_quota{name=~".+"}
+              /
+              container_spec_cpu_period{name=~".+"}
+          ) by (name)
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on container {{ $labels.name }}"
+          description: >-
+            Container {{ $labels.name }} is using {{ printf "%.0f" $value }}% of CPU quota.
+          runbook_url: "{{ .ExternalURL }}/runbooks/high-cpu.md"
+
+      # -----------------------------------------------------------------------
+      # High Memory Usage (Container Level)
+      # -----------------------------------------------------------------------
+      # Triggers when container memory usage exceeds 80% of limit.
+      #
+      # Threshold Justification:
+      #   - 80% is a standard warning threshold before OOM risk
+      #   - At 100%, container will be OOM killed
+      #   - 5m duration filters brief spikes during garbage collection
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_working_set_bytes{name=~".+"}
+          /
+          container_spec_memory_limit_bytes{name=~".+"}
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on container {{ $labels.name }}"
+          description: >-
+            Container {{ $labels.name }} is using {{ printf "%.0f" $value }}% of memory limit.
+          runbook_url: "{{ .ExternalURL }}/runbooks/high-memory.md"
+
+      # -----------------------------------------------------------------------
+      # Prometheus Alerting Failure
+      # -----------------------------------------------------------------------
+      # Meta-alert: triggers when Prometheus fails to send alerts.
+      #
+      # Threshold Justification:
+      #   - Any dropped notifications indicate alerting pipeline issues
+      #   - 5m duration filters transient network issues
+      #   - Critical because silent failures are the worst kind
+      - alert: PrometheusAlertingFailure
+        expr: prometheus_notifications_dropped_total > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is failing to send alerts"
+          description: >-
+            Prometheus has dropped {{ $value }} alert notifications.
+            Check Alertmanager connectivity and configuration.
+          runbook_url: "{{ .ExternalURL }}/runbooks/prometheus-alerting.md"
+
+  # ===========================================================================
+  # Service Down Summary
+  # ===========================================================================
+  - name: service_health
+    rules:
+      # -----------------------------------------------------------------------
+      # Generic Service Down
+      # -----------------------------------------------------------------------
+      # Catch-all alert for any service that goes down.
+      # Individual service alerts above provide more context.
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: >-
+            Service {{ $labels.job }} has been unreachable for 2 minutes.
+            Check container status: docker compose ps {{ $labels.job }}
+            Check logs: docker compose logs {{ $labels.job }}
+          runbook_url: "{{ .ExternalURL }}/runbooks/service-down.md"

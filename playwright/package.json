@@ -1,0 +1,26 @@
+{
+  "name": "knowledge-mapper-playwright",
+  "version": "1.0.0",
+  "description": "API tests for Knowledge Mapper",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project='API Tests'",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "keywords": [
+    "playwright",
+    "api-testing",
+    "knowledge-mapper"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

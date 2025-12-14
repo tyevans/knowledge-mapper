@@ -1,0 +1,228 @@
+# Backend Deployment for Knowledge Mapper
+#
+# FastAPI application deployment with:
+# - Security contexts (non-root, read-only filesystem)
+# - Health probes (liveness and readiness)
+# - Resource limits and requests
+# - Pod anti-affinity for high availability
+#
+# Customize replicas, resources, and other settings in overlays.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/version: "latest"
+  annotations:
+    # Prometheus metrics scraping
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: knowledge-mapper
+      app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: knowledge-mapper
+        app.kubernetes.io/component: backend
+      annotations:
+        # Prometheus metrics scraping (pod-level)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: backend
+          # Image reference - update OWNER to your GitHub org/username
+          # Override tag in overlays: images[].newTag
+          image: ghcr.io/your-github-username/knowledge-mapper-backend:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # Environment variables from ConfigMap
+          env:
+            - name: ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: ENV
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: LOG_LEVEL
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: DEBUG
+            - name: API_V1_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: API_V1_PREFIX
+            - name: OAUTH_ISSUER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: OAUTH_ISSUER_URL
+            - name: TENANT_CLAIM_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: TENANT_CLAIM_NAME
+            - name: REQUIRE_TENANT_CLAIM
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: REQUIRE_TENANT_CLAIM
+
+            # OpenTelemetry configuration
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: OTEL_SERVICE_NAME
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: knowledge-mapper-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+
+            # Environment variables from Secrets
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: knowledge-mapper-secrets
+                  key: DATABASE_URL
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: knowledge-mapper-secrets
+                  key: MIGRATION_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: knowledge-mapper-secrets
+                  key: REDIS_URL
+
+
+          # Resource management
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # Liveness probe - restarts container if unhealthy
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Readiness probe - controls traffic routing
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Startup probe - allows slow container startup
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+            successThreshold: 1
+
+          # Container-level security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+
+          # Volume mounts for writable directories
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+
+      # Volumes for read-only root filesystem
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 200Mi
+
+      # Pod anti-affinity for high availability
+      # Spreads pods across nodes when possible
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: knowledge-mapper
+                    app.kubernetes.io/component: backend
+                topologyKey: kubernetes.io/hostname
+
+      # Topology spread for even distribution
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: knowledge-mapper
+              app.kubernetes.io/component: backend

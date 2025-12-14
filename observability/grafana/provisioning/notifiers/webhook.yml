@@ -1,0 +1,117 @@
+# Grafana Notification Channel Configuration for Knowledge Mapper
+#
+# This template configures a webhook notification channel for alerting.
+# Prometheus alerts are forwarded to this webhook for external notification.
+#
+# Replace the URL with your actual alerting endpoint:
+#
+# For Slack integration:
+#   url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+#
+# For PagerDuty integration:
+#   url: https://events.pagerduty.com/v2/enqueue
+#   (requires additional PagerDuty configuration)
+#
+# For OpsGenie integration:
+#   url: https://api.opsgenie.com/v2/alerts
+#   (requires API key header)
+#
+# For Microsoft Teams:
+#   url: https://outlook.office.com/webhook/YOUR/WEBHOOK/URL
+#
+# For Discord:
+#   url: https://discord.com/api/webhooks/YOUR/WEBHOOK/URL
+#
+# Environment Variable:
+#   Set ALERT_WEBHOOK_URL in your environment to configure the webhook
+#   destination without modifying this file.
+#
+# For more information:
+# https://grafana.com/docs/grafana/latest/alerting/notifications/
+# https://grafana.com/docs/grafana/latest/administration/provisioning/#alert-notification-channels
+
+notifiers:
+  # ===========================================================================
+  # Primary Webhook Notification Channel
+  # ===========================================================================
+  # Default notification channel for all alerts.
+  # Sends JSON payload to configured webhook URL.
+  - name: webhook-alerts
+    type: webhook
+    uid: webhook-alerts
+    org_id: 1
+    is_default: true
+    send_reminder: true
+    frequency: 1h
+    disable_resolve_message: false
+    settings:
+      # Webhook URL - set via ALERT_WEBHOOK_URL environment variable
+      # Falls back to localhost for development/testing
+      url: "${ALERT_WEBHOOK_URL:-http://localhost:9999/alerts}"
+      # HTTP method for sending alerts
+      httpMethod: POST
+      # Basic auth credentials (leave empty if not needed)
+      username: ""
+      password: ""
+      # Automatically send resolve notifications when alerts clear
+      autoResolve: true
+      # Whether to upload dashboard screenshots with alerts
+      uploadImage: false
+
+  # ===========================================================================
+  # Slack Notification Channel (Example)
+  # ===========================================================================
+  # Uncomment and configure if using Slack for notifications.
+  # Requires SLACK_WEBHOOK_URL environment variable.
+  #
+  # - name: slack-alerts
+  #   type: slack
+  #   uid: slack-alerts
+  #   org_id: 1
+  #   is_default: false
+  #   send_reminder: true
+  #   frequency: 1h
+  #   disable_resolve_message: false
+  #   settings:
+  #     url: "${SLACK_WEBHOOK_URL}"
+  #     recipient: "#alerts"
+  #     username: "Grafana Alerts"
+  #     icon_emoji: ":warning:"
+  #     uploadImage: true
+  #     mentionChannel: "here"  # or "channel" for @channel
+
+  # ===========================================================================
+  # PagerDuty Notification Channel (Example)
+  # ===========================================================================
+  # Uncomment and configure if using PagerDuty for on-call alerting.
+  # Requires PAGERDUTY_INTEGRATION_KEY environment variable.
+  #
+  # - name: pagerduty-critical
+  #   type: pagerduty
+  #   uid: pagerduty-critical
+  #   org_id: 1
+  #   is_default: false
+  #   send_reminder: false
+  #   disable_resolve_message: false
+  #   settings:
+  #     integrationKey: "${PAGERDUTY_INTEGRATION_KEY}"
+  #     severity: critical
+  #     autoResolve: true
+
+  # ===========================================================================
+  # Email Notification Channel (Example)
+  # ===========================================================================
+  # Uncomment and configure if using email for notifications.
+  # Requires Grafana SMTP configuration in grafana.ini
+  #
+  # - name: email-alerts
+  #   type: email
+  #   uid: email-alerts
+  #   org_id: 1
+  #   is_default: false
+  #   send_reminder: true
+  #   frequency: 4h
+  #   disable_resolve_message: false
+  #   settings:
+  #     addresses: "oncall@example.com;platform-team@example.com"
+  #     singleEmail: true

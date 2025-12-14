@@ -1,0 +1,25 @@
+# Reduced replicas for staging environment
+#
+# Cost optimization: staging doesn't require high availability.
+# Single replica is sufficient for testing and validation.
+#
+# Trade-offs:
+# - Lower cost (fewer pod resources)
+# - No redundancy (acceptable for non-production)
+# - Rolling updates will cause brief downtime (acceptable for staging)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1

@@ -1,0 +1,29 @@
+# .pre-commit-config.yaml
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Gitleaks - Secret detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2  # Use latest stable version
+    hooks:
+      - id: gitleaks
+        name: Detect secrets with gitleaks
+        description: Detect hardcoded secrets in git repository
+        entry: gitleaks protect --staged --verbose
+        language: golang
+        pass_filenames: false
+
+  # Optional: Additional security hooks
+  # - repo: https://github.com/pre-commit/pre-commit-hooks
+  #   rev: v4.6.0
+  #   hooks:
+  #     - id: detect-private-key
+  #       name: Detect private keys
+  #     - id: detect-aws-credentials
+  #       name: Detect AWS credentials
+
+# CI configuration
+ci:
+  autofix_prs: false  # Don't auto-fix, secrets require manual review
+  autoupdate_schedule: monthly

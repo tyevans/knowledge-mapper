@@ -1,0 +1,50 @@
+# Pod Disruption Budget - ensures minimum availability during maintenance
+#
+# PDBs protect against voluntary disruptions such as:
+# - Node drains for maintenance
+# - Cluster upgrades
+# - Node autoscaling events
+#
+# Enable by uncommenting in kustomization.yaml:
+#   resources:
+#     - ../../base
+#     - pdb.yaml
+#
+# Trade-offs:
+# - Prevents cluster operations if minimum pods not available
+# - May slow down node maintenance operations
+# - Recommended for production workloads
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: backend
+spec:
+  # At least 1 backend pod must be available during disruptions
+  # With 3 replicas, this allows 2 pods to be unavailable
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: knowledge-mapper
+      app.kubernetes.io/component: backend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: frontend
+spec:
+  # At least 1 frontend pod must be available during disruptions
+  # With 2 replicas, this allows 1 pod to be unavailable
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: knowledge-mapper
+      app.kubernetes.io/component: frontend

@@ -1,0 +1,63 @@
+# Production resource limits
+#
+# These values should be tuned based on actual usage metrics.
+# Start with these defaults and adjust after observing production behavior.
+#
+# Guidelines:
+# - Requests: Average resource usage (guaranteed allocation)
+# - Limits: Peak resource usage + buffer (maximum allowed)
+# - Monitor and adjust based on Prometheus metrics
+#
+# Resource estimates (total):
+# | Component | CPU Request | Memory Request | CPU Limit | Memory Limit | Replicas |
+# |-----------|-------------|----------------|-----------|--------------|----------|
+# | Backend   | 200m        | 512Mi          | 1000m     | 1Gi          | 3        |
+# | Frontend  | 100m        | 128Mi          | 500m      | 256Mi        | 2        |
+# | Total     | 800m        | 1.8Gi          | 4000m     | 3.5Gi        | 5        |
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # Production-tuned probes (more conservative timeouts)
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

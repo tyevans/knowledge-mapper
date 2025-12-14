@@ -1,0 +1,20 @@
+# Namespace for Knowledge Mapper
+#
+# Creates an isolated namespace for all application resources.
+# Resource quotas and limit ranges can be added in overlays.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knowledge-mapper
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: namespace
+    # Pod security standards (Kubernetes 1.25+)
+    # Enforce restricted security context
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

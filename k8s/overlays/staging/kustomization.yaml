@@ -1,0 +1,71 @@
+# Knowledge Mapper Kubernetes Staging Overlay
+#
+# Staging environment configuration with reduced resources for cost efficiency.
+# Inherits from base/ and applies staging-specific patches.
+#
+# Deploy: kubectl apply -k k8s/overlays/staging
+# Review: kubectl kustomize k8s/overlays/staging
+#
+# Staging-specific characteristics:
+# - Single replica per deployment (cost savings)
+# - Reduced resource limits (50% of production)
+# - Debug logging enabled
+# - Staging-specific hostnames and TLS
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+
+# Additional staging labels applied to all resources
+commonLabels:
+  app.kubernetes.io/environment: staging
+
+# Common annotations for all resources
+commonAnnotations:
+  environment: staging
+  managed-by: kustomize
+
+# Image customization for staging
+# Uses 'staging' tag for continuous deployment from staging branch
+images:
+  - name: ghcr.io/your-github-username/knowledge-mapper-backend
+    newTag: staging
+  - name: ghcr.io/your-github-username/knowledge-mapper-frontend
+    newTag: staging
+
+# Patches to apply
+patches:
+  # ConfigMap values for staging environment
+  - path: configmap-patch.yaml
+
+  # Reduced replicas for staging (cost optimization)
+  - path: replicas-patch.yaml
+
+  # Reduced resources for staging workloads
+  - path: resources-patch.yaml
+
+  # Staging ingress hosts - update to your staging domain
+  - target:
+      kind: Ingress
+      name: knowledge-mapper-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api-staging.example.com
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - staging.example.com
+          - api-staging.example.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: knowledge-mapper-staging-tls
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-staging

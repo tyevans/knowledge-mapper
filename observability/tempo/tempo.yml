@@ -1,0 +1,176 @@
+# Tempo Configuration for Knowledge Mapper
+#
+# Tempo is a distributed tracing backend that integrates with Grafana.
+# It accepts traces via OpenTelemetry Protocol (OTLP) and stores them
+# for querying via Grafana's trace exploration features.
+#
+# This configuration is optimized for local development with filesystem storage.
+#
+# For more information on Tempo configuration:
+# https://grafana.com/docs/tempo/latest/configuration/
+#
+# Key endpoints exposed by this configuration:
+# - POST tempo:4317 (gRPC) - OTLP trace ingestion from backend services
+# - POST tempo:4318 (HTTP) - OTLP trace ingestion (browser/frontend tracing)
+# - GET  tempo:3200/api/traces/{traceID} - Trace queries (used by Grafana)
+# - GET  tempo:3200/ready - Health check (used by Docker)
+# - GET  tempo:3200/metrics - Prometheus metrics
+#
+# Sampling Configuration (OQ-007):
+# Trace sampling is controlled at the application level, not in Tempo.
+# Use OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG environment variables
+# in your backend service to configure sampling:
+#   - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+#   - OTEL_TRACES_SAMPLER_ARG=1.0 (100% sampling for development)
+#   - OTEL_TRACES_SAMPLER_ARG=0.1 (10% sampling for high-volume production)
+
+# -----------------------------------------------------------------------------
+# Server Configuration
+# -----------------------------------------------------------------------------
+server:
+  # HTTP API port for trace queries, health checks, and metrics
+  # Grafana connects to this port to query traces
+  http_listen_port: 3200
+
+# -----------------------------------------------------------------------------
+# Query Frontend Configuration
+# -----------------------------------------------------------------------------
+# Settings for the query frontend component that handles trace lookups
+query_frontend:
+  search:
+    # Service Level Objective for search query duration
+    # Queries exceeding this duration are logged as slow queries
+    duration_slo: 5s
+
+    # Target throughput for search operations (1 GB/s)
+    throughput_bytes_slo: 1.073741824e+09
+
+# -----------------------------------------------------------------------------
+# Distributor Configuration
+# -----------------------------------------------------------------------------
+# The distributor receives traces and routes them to ingesters
+distributor:
+  receivers:
+    # OpenTelemetry Protocol (OTLP) receivers
+    # OTLP is the standard protocol for OpenTelemetry trace export
+    otlp:
+      protocols:
+        # gRPC receiver on port 4317 (primary for backend services)
+        # This is the default OTLP gRPC port per OpenTelemetry specification
+        # Backend services export traces here via:
+        #   OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+        # HTTP receiver on port 4318 (for browser/frontend tracing)
+        # This is the default OTLP HTTP port per OpenTelemetry specification
+        # Useful for browser-based tracing or environments where gRPC is unavailable
+        http:
+          endpoint: 0.0.0.0:4318
+          # CORS configuration for browser-based tracing
+          # Allows frontend applications to send traces directly to Tempo
+          cors:
+            allowed_origins:
+              - "http://localhost:*"
+              - "http://127.0.0.1:*"
+            allowed_headers:
+              - "*"
+
+# -----------------------------------------------------------------------------
+# Ingester Configuration
+# -----------------------------------------------------------------------------
+# The ingester builds and writes trace blocks to storage
+ingester:
+  # Maximum duration of a single block before it's flushed to storage
+  # Shorter duration = faster trace availability but more blocks
+  # 5 minutes provides a good balance for development
+  max_block_duration: 5m
+
+# -----------------------------------------------------------------------------
+# Compactor Configuration
+# -----------------------------------------------------------------------------
+# The compactor combines smaller blocks and enforces retention
+compactor:
+  compaction:
+    # Trace block retention period
+    # Blocks older than this duration are automatically deleted
+    #
+    # Development: 1 hour is sufficient for debugging and testing
+    # Production: Consider 24-72 hours based on storage capacity
+    # (traces are high-volume, short retention is typical)
+    block_retention: 168h
+
+# -----------------------------------------------------------------------------
+# Storage Configuration
+# -----------------------------------------------------------------------------
+# Defines where and how trace data is stored
+storage:
+  trace:
+    # Storage backend type
+    # - local: Filesystem storage (development)
+    # - s3: AWS S3 or compatible (production)
+    # - gcs: Google Cloud Storage (production)
+    # - azure: Azure Blob Storage (production)
+    backend: local
+
+    # Local filesystem storage paths
+    # These paths must match the Docker volume mount points
+    local:
+      # Directory for storing completed trace blocks
+      path: /var/tempo/blocks
+
+    # Write-Ahead Log (WAL) configuration
+    # The WAL provides durability for in-flight traces before they're flushed
+    wal:
+      path: /var/tempo/wal
+
+    # Block storage optimizations
+    block:
+      # Bloom filter false positive rate
+      # Lower values = larger filters but faster negative lookups
+      # 0.05 (5%) provides a good balance of size and accuracy
+      bloom_filter_false_positive: .05
+
+      # Index downsampling for v2 blocks
+      # Higher values = smaller index but slower point queries
+      v2_index_downsample_bytes: 1000
+
+      # Block encoding compression algorithm
+      # zstd provides excellent compression ratio with good speed
+      v2_encoding: zstd
+
+# -----------------------------------------------------------------------------
+# Metrics Generator Configuration
+# -----------------------------------------------------------------------------
+# Generates metrics from trace data (RED metrics, service graphs)
+# These metrics can be scraped by Prometheus for service-level insights
+metrics_generator:
+  registry:
+    # Labels attached to all generated metrics
+    external_labels:
+      # Identifies these metrics as coming from Tempo
+      source: tempo
+      # Identifies the deployment environment
+      cluster: 'knowledge-mapper'
+
+  # Storage paths for metrics generator state
+  storage:
+    # Write-Ahead Log for metrics generator
+    path: /var/tempo/generator/wal
+
+    # Remote write destinations for generated metrics
+    # Uncomment to push metrics directly to Prometheus or remote storage
+    # remote_write:
+    #   - url: http://prometheus:9090/api/v1/write
+    remote_write: []
+
+  # Storage for generated traces (span metrics)
+  traces_storage:
+    path: /var/tempo/generator/traces
+
+# -----------------------------------------------------------------------------
+# Usage Reporting
+# -----------------------------------------------------------------------------
+# Grafana Labs usage reporting - disabled for privacy
+usage_report:
+  reporting_enabled: false

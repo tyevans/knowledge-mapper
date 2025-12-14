@@ -1,0 +1,71 @@
+# ConfigMap for Knowledge Mapper
+#
+# Non-sensitive configuration values for the application.
+# Sensitive values (passwords, API keys) should be in Secrets.
+#
+# Override values in overlays for different environments:
+#   overlays/staging/kustomization.yaml:
+#     configMapGenerator:
+#       - name: knowledge-mapper-config
+#         behavior: merge
+#         literals:
+#           - ENV=staging
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knowledge-mapper-config
+  labels:
+    app.kubernetes.io/name: knowledge-mapper
+    app.kubernetes.io/component: config
+data:
+  # =============================================================================
+  # Environment Settings
+  # =============================================================================
+  ENV: "production"
+  LOG_LEVEL: "info"
+  DEBUG: "false"
+
+  # =============================================================================
+  # API Configuration
+  # =============================================================================
+  API_V1_PREFIX: "/api/v1"
+
+  # =============================================================================
+  # OAuth/OIDC Configuration
+  # =============================================================================
+  # Update OAUTH_ISSUER_URL based on your Keycloak deployment
+  # Example: https://auth.yourdomain.com/realms/knowledge-mapper-dev
+  OAUTH_ISSUER_URL: "https://auth.example.com/realms/knowledge-mapper-dev"
+
+  # =============================================================================
+  # Multi-Tenancy Settings
+  # =============================================================================
+  TENANT_CLAIM_NAME: "tenant_id"
+  REQUIRE_TENANT_CLAIM: "true"
+
+  # =============================================================================
+  # Frontend Configuration
+  # =============================================================================
+  # Note: VITE_* variables are build-time for Vite applications.
+  # For runtime configuration, use a config endpoint or environment injection.
+  # These values are provided for reference and nginx environment substitution.
+  VITE_API_URL: "https://api.example.com"
+  VITE_API_PREFIX: "/api/v1"
+
+  # =============================================================================
+  # OpenTelemetry Configuration (Observability)
+  # =============================================================================
+  # Configure these based on your observability stack
+  OTEL_SERVICE_NAME: "backend"
+  # OTLP endpoint - update for your tracing backend (Tempo, Jaeger, etc.)
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.observability:4317"
+
+  # =============================================================================
+  # Security Headers Configuration
+  # =============================================================================
+  SECURITY_HEADERS_ENABLED: "true"
+  CSP_ENABLED: "true"
+  HSTS_ENABLED: "true"
+  HSTS_MAX_AGE: "31536000"
+  HSTS_INCLUDE_SUBDOMAINS: "true"

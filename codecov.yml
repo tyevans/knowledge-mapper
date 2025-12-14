@@ -1,0 +1,121 @@
+# Codecov Configuration
+# https://docs.codecov.com/docs/codecov-yaml
+#
+# This file configures coverage reporting for Knowledge Mapper
+# Coverage reports are uploaded automatically by GitHub Actions CI workflow
+#
+# Setup Instructions:
+# 1. Sign up at https://codecov.io (free for public repos)
+# 2. Add your repository to Codecov
+# 3. Copy the upload token from Codecov dashboard
+# 4. Add CODECOV_TOKEN to your GitHub repository secrets
+#    (Settings > Secrets and variables > Actions > New repository secret)
+#
+# Note: Public repos can work without a token but may be rate-limited
+
+codecov:
+  # Require CI to pass before processing coverage
+  require_ci_to_pass: true
+  notify:
+    # Wait for all CI jobs to complete before sending notifications
+    wait_for_ci: true
+
+coverage:
+  # Display coverage with 2 decimal places
+  precision: 2
+  # Round coverage down (conservative)
+  round: down
+  # Color range for coverage display (red < 60%, yellow 60-80%, green > 80%)
+  range: "60...100"
+
+  status:
+    # Project-level coverage checks
+    project:
+      default:
+        # Target is auto-adjusted based on historical coverage
+        target: auto
+        # Allow 1% coverage drop without failing
+        threshold: 1%
+        # Fail PR if coverage drops below threshold
+        informational: false
+
+      # Backend-specific coverage target (Python/FastAPI)
+      backend:
+        paths:
+          - "backend/"
+        # Backend code should have 80% coverage
+        target: 80%
+        # Allow 2% fluctuation
+        threshold: 2%
+
+      # Frontend-specific coverage target (Lit/TypeScript)
+      frontend:
+        paths:
+          - "frontend/"
+        # Frontend coverage target is lower due to UI complexity
+        target: 70%
+        # Allow 2% fluctuation
+        threshold: 2%
+
+    # Patch coverage (new/changed code)
+    patch:
+      default:
+        # New code should be well-tested
+        target: 80%
+        # Allow some flexibility for patches
+        threshold: 5%
+        # Fail PR if new code is poorly tested
+        informational: false
+
+# Parser configuration for coverage report formats
+parsers:
+  gcov:
+    branch_detection:
+      conditional: yes
+      loop: yes
+      method: no
+      macro: no
+
+# PR comment configuration
+comment:
+  # Layout of the coverage comment on PRs
+  layout: "reach,diff,flags,files"
+  # Default behavior for comments
+  behavior: default
+  # Only comment when there are coverage changes
+  require_changes: true
+  # Don't require base coverage to exist
+  require_base: false
+  # Require head coverage for comparison
+  require_head: true
+
+# Coverage flags for separating backend and frontend coverage
+flags:
+  backend:
+    paths:
+      - backend/
+    # Don't carry forward coverage from previous commits
+    # (ensures accurate per-commit reporting)
+    carryforward: false
+
+  frontend:
+    paths:
+      - frontend/
+    # Don't carry forward coverage from previous commits
+    carryforward: false
+
+# Ignore certain paths from coverage analysis
+ignore:
+  # Test files
+  - "backend/tests/**"
+  - "frontend/tests/**"
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.spec.ts"
+  # Configuration files
+  - "backend/app/core/config.py"
+  - "frontend/vite.config.ts"
+  - "frontend/vitest.config.ts"
+  # Migration files (auto-generated)
+  - "backend/alembic/**"
+  # Type definitions
+  - "frontend/src/**/*.d.ts"

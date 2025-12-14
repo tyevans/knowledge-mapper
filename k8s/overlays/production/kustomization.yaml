@@ -1,0 +1,95 @@
+# Knowledge Mapper Kubernetes Production Overlay
+#
+# Production environment configuration with high availability settings.
+# Inherits from base/ and applies production-specific patches.
+#
+# IMPORTANT: Review all settings before deploying to production.
+#
+# Deploy: kubectl apply -k k8s/overlays/production
+# Review: kubectl kustomize k8s/overlays/production
+#
+# Production-specific characteristics:
+# - High availability replicas (backend: 3, frontend: 2)
+# - Production-sized resource limits (backend: 1 CPU, 1Gi memory)
+# - Zero-downtime rolling update strategy (maxUnavailable: 0)
+# - Semantic version image tags (not 'latest')
+# - Optional Pod Disruption Budget (PDB)
+# - Prometheus scraping annotations
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+  # Uncomment to enable Pod Disruption Budget for maintenance protection
+  # - pdb.yaml
+
+# Production labels applied to all resources
+commonLabels:
+  app.kubernetes.io/environment: production
+
+# Production annotations
+commonAnnotations:
+  environment: production
+  managed-by: kustomize
+
+# Image customization - use semantic versions in production (not 'latest')
+# Update these tags during release deployments
+images:
+  - name: ghcr.io/your-github-username/knowledge-mapper-backend
+    newTag: v1.0.0
+  - name: ghcr.io/your-github-username/knowledge-mapper-frontend
+    newTag: v1.0.0
+
+# Patches to apply
+patches:
+  # ConfigMap values for production environment
+  - path: configmap-patch.yaml
+
+  # Increased replicas for high availability
+  - path: replicas-patch.yaml
+
+  # Production resource limits
+  - path: resources-patch.yaml
+
+  # Production ingress hosts - update to your production domain
+  - target:
+      kind: Ingress
+      name: knowledge-mapper-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: app.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.example.com
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - app.example.com
+          - api.example.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: knowledge-mapper-production-tls
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+
+  # Add production-specific annotations for backend
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: add
+        path: /metadata/annotations/kubectl.kubernetes.io~1default-container
+        value: backend
+
+  # Add production-specific annotations for frontend
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: add
+        path: /metadata/annotations/kubectl.kubernetes.io~1default-container
+        value: frontend

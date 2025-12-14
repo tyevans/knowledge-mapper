@@ -1,0 +1,77 @@
+# .gitleaks.toml
+# Gitleaks configuration for secret detection
+# See: https://github.com/gitleaks/gitleaks#configuration
+
+title = "Knowledge Mapper Gitleaks Configuration"
+
+# Extend the default ruleset
+[extend]
+useDefault = true
+
+# Custom rules can be added here
+# [[rules]]
+# id = "custom-api-key"
+# description = "Custom API key pattern"
+# regex = '''(?i)custom[_-]?api[_-]?key['":\s]*[=:]\s*['"]?([a-z0-9]{32,})['"]?'''
+# secretGroup = 1
+
+# Allowlist - files and patterns that should be ignored
+[allowlist]
+description = "Allowlisted files and patterns"
+
+# Files to ignore completely
+paths = [
+    # Test fixtures with example/dummy secrets
+    '''.*test.*fixture.*''',
+    '''.*tests.*mock.*''',
+    # Lock files (contain hashes, not secrets)
+    '''uv\.lock''',
+    '''package-lock\.json''',
+    '''poetry\.lock''',
+    # Documentation examples
+    '''.*\.md''',
+    # Environment example files (contain placeholders, not real secrets)
+    '''\.env\.example''',
+    '''\.env\.sample''',
+    '''\.env\.template''',
+    # Keycloak realm configuration (contains example/dev-only values)
+    '''keycloak/.*\.json''',
+]
+
+# Specific commits to ignore (historical commits with cleaned secrets)
+commits = [
+    # Add commit SHAs here after cleaning historical secrets
+    # "abc123def456..."
+]
+
+# Regex patterns to ignore (false positives)
+regexes = [
+    # Example placeholder values
+    '''your[_-]?(api[_-]?)?key[_-]?here''',
+    '''<your[_-]?.*>''',
+    '''CHANGE[_-]?ME''',
+    '''xxx+''',
+    # Base64 encoded example strings
+    '''ZXhhbXBsZQ==''',  # "example" in base64
+    # Common test/example values
+    '''test[_-]?secret''',
+    '''example[_-]?password''',
+    '''dummy[_-]?token''',
+    # Cookiecutter template variables (not real secrets)
+    '''\{\{cookiecutter\..*\}\}''',
+]
+
+# Stopwords - strings that indicate a value is not a secret
+stopwords = [
+    "example",
+    "sample",
+    "placeholder",
+    "changeme",
+    "your-",
+    "xxx",
+    "test",
+    "dummy",
+    "fake",
+    "mock",
+    "cookiecutter",
+]

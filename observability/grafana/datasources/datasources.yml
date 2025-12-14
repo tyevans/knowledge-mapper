@@ -1,0 +1,183 @@
+# =============================================================================
+# Grafana Datasources Configuration for Knowledge Mapper
+# =============================================================================
+#
+# Pre-configured connections to Prometheus, Loki, and Tempo with full
+# correlation support for seamless navigation between metrics, logs, and traces.
+#
+# Datasource UIDs (referenced by dashboards):
+#   - prometheus: Metrics storage and querying
+#   - loki: Log aggregation and querying
+#   - tempo: Distributed tracing
+#
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  # ===========================================================================
+  # Prometheus - Metrics
+  # ===========================================================================
+  # Default datasource for metrics queries and dashboards.
+  # Receives metrics from OpenTelemetry Collector via remote_write.
+  #
+  # Internal URL: http://prometheus:9090
+  # External URL: http://localhost:9090
+  # ===========================================================================
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      # Use POST for large queries (recommended)
+      httpMethod: POST
+      # Scrape interval for calculating rate() correctly
+      timeInterval: "15s"
+      # Prometheus type for proper query handling
+      prometheusType: Prometheus
+      # Disable alert management (handled separately)
+      manageAlerts: false
+      # Exemplar support for trace correlation from metrics
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo
+
+  # ===========================================================================
+  # Loki - Logs
+  # ===========================================================================
+  # Log aggregation with derived fields for trace correlation.
+  # Receives logs from Promtail which scrapes Docker container logs.
+  #
+  # Internal URL: http://loki:3100
+  # External URL: http://localhost:3100
+  #
+  # Derived Fields:
+  #   - TraceID: Extracts trace_id from log lines and links to Tempo
+  # ===========================================================================
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      # Maximum lines to return per query
+      maxLines: 1000
+      # Derived fields for log-to-trace correlation
+      # Clicking a trace ID in logs will open the trace in Tempo
+      derivedFields:
+        # Match trace_id in JSON logs: "trace_id":"abc123..."
+        - name: TraceID
+          matcherRegex: '"trace_id"\s*:\s*"([a-fA-F0-9]+)"'
+          url: "${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+        # Match traceId in JSON logs (alternative format): "traceId":"abc123..."
+        - name: TraceID-alt
+          matcherRegex: '"traceId"\s*:\s*"([a-fA-F0-9]+)"'
+          url: "${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+        # Match trace_id in structured log format: trace_id=abc123...
+        - name: TraceID-structured
+          matcherRegex: 'trace_id=([a-fA-F0-9]+)'
+          url: "${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+
+  # ===========================================================================
+  # Tempo - Traces
+  # ===========================================================================
+  # Distributed tracing backend with full correlation support.
+  # Receives traces from OpenTelemetry Collector via OTLP.
+  #
+  # Internal URL: http://tempo:3200
+  # External URL: http://localhost:3200
+  #
+  # Correlations:
+  #   - tracesToLogsV2: Click "Logs for this span" to view related logs in Loki
+  #   - tracesToMetrics: Link traces to Prometheus metrics by service name
+  #   - serviceMap: Visual service dependency graph using Prometheus metrics
+  # ===========================================================================
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: true
+    jsonData:
+      # -------------------------------------------------------------------------
+      # Trace to Logs Correlation (V2)
+      # -------------------------------------------------------------------------
+      # Enables "Logs for this span" button in trace view.
+      # Clicking opens Loki with logs filtered by trace ID and time range.
+      tracesToLogsV2:
+        datasourceUid: loki
+        # Time window around span for log search
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        # Filter logs by trace ID (recommended)
+        filterByTraceID: true
+        # Filter by span ID (disabled - trace ID is usually sufficient)
+        filterBySpanID: false
+        # Use default query (LogQL with trace filter)
+        customQuery: false
+        # Tags to include in log search filter
+        tags:
+          - key: "service.name"
+            value: "service_name"
+
+      # -------------------------------------------------------------------------
+      # Trace to Metrics Correlation
+      # -------------------------------------------------------------------------
+      # Links traces to related Prometheus metrics.
+      # Useful for investigating performance issues.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        # Time window around span for metrics search
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        # Map span attributes to metric labels
+        tags:
+          - key: "service.name"
+            value: "service"
+        # Predefined metric queries for common investigations
+        queries:
+          - name: "Request Rate"
+            query: 'sum(rate(http_server_request_duration_seconds_count{service="$${__span.tags.service.name}"}[5m]))'
+          - name: "Error Rate"
+            query: 'sum(rate(http_server_request_duration_seconds_count{service="$${__span.tags.service.name}", http_status_code=~"5.."}[5m]))'
+          - name: "Latency P95"
+            query: 'histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{service="$${__span.tags.service.name}"}[5m])) by (le))'
+
+      # -------------------------------------------------------------------------
+      # Service Map (Node Graph)
+      # -------------------------------------------------------------------------
+      # Visual representation of service dependencies.
+      # Uses span metrics from Prometheus to build the graph.
+      serviceMap:
+        datasourceUid: prometheus
+
+      # -------------------------------------------------------------------------
+      # Node Graph Visualization
+      # -------------------------------------------------------------------------
+      # Enable node graph for visualizing trace structure
+      nodeGraph:
+        enabled: true
+
+      # -------------------------------------------------------------------------
+      # Trace Search Configuration
+      # -------------------------------------------------------------------------
+      # Show trace search in Explore view
+      search:
+        hide: false
+
+      # -------------------------------------------------------------------------
+      # Loki Search Integration
+      # -------------------------------------------------------------------------
+      # Enables searching logs from within Tempo Explore
+      lokiSearch:
+        datasourceUid: loki

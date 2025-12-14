@@ -1,0 +1,48 @@
+# Knowledge Mapper Kubernetes Base Configuration
+#
+# This base configuration defines the common resources for all environments.
+# Use overlays (staging, production) for environment-specific customizations.
+#
+# Apply with: kubectl apply -k k8s/overlays/staging
+# Or directly: kubectl apply -k k8s/base (not recommended for production)
+#
+# Validate manifests: kubectl apply -k k8s/base --dry-run=client
+# Build and review: kubectl kustomize k8s/base
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: knowledge-mapper-base
+
+# Namespace for all resources
+namespace: knowledge-mapper
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: knowledge-mapper
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include (order matters for dependencies)
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
+  - ingress.yaml
+
+# Images can be overridden in overlays
+# images:
+#   - name: ghcr.io/OWNER/knowledge-mapper-backend
+#     newTag: v1.0.0
+#   - name: ghcr.io/OWNER/knowledge-mapper-frontend
+#     newTag: v1.0.0
+
+# ConfigMap generator (alternative approach for dynamic config)
+# configMapGenerator:
+#   - name: knowledge-mapper-config
+#     envs:
+#       - config.env

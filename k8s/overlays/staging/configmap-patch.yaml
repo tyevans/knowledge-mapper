@@ -1,0 +1,31 @@
+# Staging environment configuration overrides
+#
+# These values override the base ConfigMap for staging-specific settings.
+# Debug logging is enabled for easier troubleshooting in staging.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knowledge-mapper-config
+data:
+  # =============================================================================
+  # Environment Settings
+  # =============================================================================
+  # Environment identifier
+  ENV: "staging"
+
+  # More verbose logging for debugging in staging
+  LOG_LEVEL: "debug"
+  DEBUG: "true"
+
+  # =============================================================================
+  # OAuth/OIDC Configuration
+  # =============================================================================
+  # Staging OAuth provider - update with your staging Keycloak URL
+  OAUTH_ISSUER_URL: "https://auth-staging.example.com/realms/knowledge-mapper-dev"
+
+  # =============================================================================
+  # Frontend Configuration
+  # =============================================================================
+  # Staging frontend API URL
+  VITE_API_URL: "https://api-staging.example.com"

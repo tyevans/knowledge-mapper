@@ -1,0 +1,48 @@
+# =============================================================================
+# Grafana Dashboard Provisioning for Knowledge Mapper
+# =============================================================================
+#
+# Automatically loads dashboard JSON files from the provisioning directory.
+# Dashboards are editable in the UI for development convenience.
+#
+# Directory structure:
+#   /etc/grafana/provisioning/dashboards/  (container path)
+#   ./observability/grafana/dashboards/    (host path via volume mount)
+#
+# Dashboard files in this directory:
+#   - backend-service.json: Backend service RED metrics (Rate, Errors, Duration) and logs
+#   - (additional dashboards added as needed)
+#
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  # ===========================================================================
+  # Knowledge Mapper Dashboard Provider
+  # ===========================================================================
+  # Loads all JSON files from the provisioning directory on startup.
+  # Changes made in the UI are allowed for development iteration.
+  #
+  # Development Settings:
+  #   - editable: true         Allows dashboard editing in UI
+  #   - allowUiUpdates: true   Saves UI changes back to files
+  #   - disableDeletion: false Allows removing dashboards
+  #
+  # Production Recommendation:
+  #   - editable: false        Prevent accidental changes
+  #   - allowUiUpdates: false  Read-only provisioning
+  #   - disableDeletion: true  Preserve dashboards
+  # ===========================================================================
+  - name: 'Knowledge Mapper'
+    orgId: 1
+    folder: 'Knowledge Mapper'
+    folderUid: 'knowledge-mapper-dashboards'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

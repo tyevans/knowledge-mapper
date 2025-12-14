@@ -1,0 +1,130 @@
+# Promtail Configuration for Knowledge Mapper
+#
+# Promtail is a log collection agent that ships container logs to Loki.
+# This configuration uses Docker service discovery via the Docker socket
+# to automatically discover and collect logs from all running containers.
+#
+# For more information on Promtail configuration:
+# https://grafana.com/docs/loki/latest/send-data/promtail/configuration/
+#
+# Key features of this configuration:
+# - Automatic container discovery via Docker socket
+# - Label extraction from Docker metadata (service, container, project)
+# - Zero-configuration log collection for new containers
+# - Integration with Docker Compose service labels
+
+# =============================================================================
+# SECURITY NOTICE: Docker Socket Access
+# =============================================================================
+# This configuration requires mounting the Docker socket into the container:
+#   /var/run/docker.sock:/var/run/docker.sock:ro
+#
+# Security implications:
+# - Read-only access (:ro) limits risk but still exposes container metadata
+# - Promtail can see all container names, labels, and environment variables
+# - In production, consider using a Docker socket proxy (e.g., tecnativa/docker-socket-proxy)
+#   to limit API access to only the endpoints Promtail needs
+# - Alternative: Use file-based log collection with explicit volume mounts
+#
+# For development environments, the Docker socket approach provides the best
+# developer experience with automatic container discovery and minimal config.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Server Configuration
+# -----------------------------------------------------------------------------
+server:
+  # HTTP port for Promtail's own API and metrics
+  # Exposes /ready, /metrics, and debugging endpoints
+  http_listen_port: 9080
+
+  # gRPC port for remote configuration and communication
+  # Set to 0 to disable gRPC server (not needed for standalone operation)
+  grpc_listen_port: 0
+
+# -----------------------------------------------------------------------------
+# Positions Configuration
+# -----------------------------------------------------------------------------
+# Promtail tracks the last read position for each log stream to resume
+# collection after restarts without losing or duplicating logs
+positions:
+  # File path to store position data
+  # Using /tmp for simplicity; for production, use a persistent volume
+  filename: /tmp/positions.yaml
+
+# -----------------------------------------------------------------------------
+# Client Configuration
+# -----------------------------------------------------------------------------
+# Defines where to send collected logs (Loki instance)
+clients:
+  # Loki push API endpoint
+  # Uses Docker network DNS name 'loki' for container-to-container communication
+  - url: http://loki:3100/loki/api/v1/push
+
+# -----------------------------------------------------------------------------
+# Scrape Configuration
+# -----------------------------------------------------------------------------
+# Defines how to discover and collect logs from containers
+scrape_configs:
+  # -------------------------------------------------------------------------
+  # Docker Container Log Collection
+  # -------------------------------------------------------------------------
+  # Uses Docker service discovery to automatically find and tail container logs
+  - job_name: docker
+    docker_sd_configs:
+      # Docker socket path (mounted read-only into the container)
+      - host: unix:///var/run/docker.sock
+        # How often to refresh the list of running containers
+        # 5s provides a good balance between responsiveness and API load
+        refresh_interval: 5s
+
+    # -----------------------------------------------------------------------
+    # Label Relabeling Rules
+    # -----------------------------------------------------------------------
+    # Transform Docker metadata labels into Loki labels for efficient querying
+    # These labels enable LogQL queries like: {service="backend"} or {project="my-app"}
+    relabel_configs:
+      # Extract container name (remove leading slash added by Docker)
+      # Example: /__meta_docker_container_name="/my-project-backend"
+      #       -> container="my-project-backend"
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+
+      # Extract log stream type (stdout or stderr)
+      # Useful for filtering: {stream="stderr"} shows only error output
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+
+      # Extract Docker Compose service name
+      # Example: com.docker.compose.service="backend" -> service="backend"
+      # This is the primary label for querying logs by service
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+
+      # Extract Docker Compose project name
+      # Example: com.docker.compose.project="my-project" -> project="my-project"
+      # Useful when running multiple Compose projects on the same host
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+
+# =============================================================================
+# Example LogQL Queries
+# =============================================================================
+# After logs are collected, query them in Grafana using LogQL:
+#
+# All logs from the backend service:
+#   {service="backend"}
+#
+# Only error output (stderr) from any container:
+#   {stream="stderr"}
+#
+# Logs from a specific container:
+#   {container="knowledge-mapper-keycloak-1"}
+#
+# Logs containing a specific string:
+#   {service="backend"} |= "error"
+#
+# JSON log parsing:
+#   {service="backend"} | json | level="ERROR"
+# =============================================================================

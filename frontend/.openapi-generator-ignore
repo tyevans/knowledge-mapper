@@ -1,0 +1,23 @@
+# OpenAPI Generator Ignore
+# https://openapi-generator.tech/docs/customization/#ignore-file-format
+#
+# Use this file to prevent regeneration of specific files.
+# Each line is a pattern - files matching the pattern are excluded from generation.
+
+# Preserve this ignore file itself
+.openapi-generator-ignore
+
+# Preserve README customizations
+README.md
+
+# Preserve custom runtime modifications (uncomment if you customize runtime.ts)
+# runtime.ts
+
+# Preserve custom model extensions (uncomment if you customize models)
+# models/*Extensions.ts
+
+# Preserve custom API wrappers (uncomment if you customize API classes)
+# apis/*Wrapper.ts
+
+# Preserve any custom types you add
+# custom-types.ts
