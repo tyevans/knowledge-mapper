@@ -240,6 +240,48 @@ class Settings(BaseSettings):
     SCRAPE_USER_AGENT: str = "KnowledgeMapper/1.0 (+https://github.com/knowledge-mapper)"
     SCRAPE_RESPECT_ROBOTS: bool = True
 
+    # ==========================================================================
+    # Inference Testing Configuration
+    # Interactive LLM inference testing playground
+    # ==========================================================================
+
+    # General inference settings
+    INFERENCE_ENABLED: bool = True  # Enable/disable inference testing feature
+    INFERENCE_DEFAULT_TIMEOUT: int = 60  # Request timeout in seconds
+    INFERENCE_MAX_PROMPT_LENGTH: int = 100000  # Max prompt characters
+    INFERENCE_MAX_RESPONSE_TOKENS: int = 100000  # Max response tokens
+
+    # Rate limiting configuration
+    # Format: "requests_per_minute" - can be overridden per tenant/provider
+    INFERENCE_RATE_LIMIT_RPM: int = 30  # Global default
+    INFERENCE_RATE_LIMIT_BURST: int = 5  # Allow burst above limit
+
+    # Rate limit presets (referenced by name in provider configs)
+    # Conservative: Lower limits for expensive/slow providers
+    # Balanced: Good for most use cases
+    # Permissive: For local providers with no cost concerns
+    INFERENCE_RATE_LIMIT_PRESETS: dict = {
+        "conservative": {"rpm": 10, "burst": 2},
+        "balanced": {"rpm": 30, "burst": 5},
+        "permissive": {"rpm": 100, "burst": 20},
+    }
+
+    # Default parameters for inference requests
+    INFERENCE_DEFAULT_TEMPERATURE: float = 0.7
+    INFERENCE_DEFAULT_MAX_TOKENS: int = 1024
+
+    # Streaming configuration
+    INFERENCE_STREAMING_ENABLED: bool = True
+    INFERENCE_STREAMING_CHUNK_SIZE: int = 100  # characters
+
+    # History configuration
+    INFERENCE_HISTORY_RETENTION_DAYS: int = 90
+    INFERENCE_HISTORY_MAX_RESPONSE_STORED: int = 50000  # truncate larger responses
+
+    # Provider-specific defaults (used when creating providers without explicit config)
+    INFERENCE_OLLAMA_DEFAULT_URL: str = "http://192.168.1.14:11434"
+    INFERENCE_OLLAMA_DEFAULT_MODEL: str = "gemma3:12b"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
