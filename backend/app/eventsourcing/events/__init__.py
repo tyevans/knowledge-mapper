@@ -11,6 +11,18 @@ from app.eventsourcing.events.extraction import (
     ExtractionStarted,
     RelationshipDiscovered,
 )
+from app.eventsourcing.events.inference import (
+    InferenceCancelled,
+    InferenceCompleted,
+    InferenceFailed,
+    InferenceRequested,
+    InferenceStarted,
+    ProviderCreated,
+    ProviderDeleted,
+    ProviderTestFailed,
+    ProviderTestSucceeded,
+    ProviderUpdated,
+)
 from app.eventsourcing.events.scraping import (
     EntitiesExtractedBatch,
     EntityExtracted,
@@ -64,4 +76,16 @@ __all__ = [
     "EntitySyncedToNeo4j",
     "RelationshipSyncedToNeo4j",
     "Neo4jSyncFailed",
+    # Inference provider events
+    "ProviderCreated",
+    "ProviderUpdated",
+    "ProviderDeleted",
+    "ProviderTestSucceeded",
+    "ProviderTestFailed",
+    # Inference request events
+    "InferenceRequested",
+    "InferenceStarted",
+    "InferenceCompleted",
+    "InferenceFailed",
+    "InferenceCancelled",
 ]

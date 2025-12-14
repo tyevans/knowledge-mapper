@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.inference_provider import InferenceProvider
     from app.models.oauth_provider import OAuthProvider
     from app.models.user import User
     from app.models.user_tenant_membership import UserTenantMembership
@@ -105,6 +106,13 @@ class Tenant(Base):
         back_populates="tenant",
         cascade="all, delete-orphan",
         doc="User memberships in this tenant (multi-tenant support)",
+    )
+
+    inference_providers: Mapped[list[InferenceProvider]] = relationship(
+        "InferenceProvider",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        doc="Inference providers configured for this tenant",
     )
 
     def __init__(self, **kwargs):
