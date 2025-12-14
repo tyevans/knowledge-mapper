@@ -19,6 +19,10 @@ Models:
     - EntityType: Enum of entity types
     - ExtractionMethod: Enum of extraction methods
     - EntityRelationship: Relationship between entities
+    - InferenceProvider: LLM inference provider configuration
+    - InferenceProviderType: Enum of inference provider types
+    - InferenceRequest: Inference request history (projection)
+    - InferenceStatus: Enum of inference request statuses
 """
 
 from app.models.extracted_entity import (
@@ -27,6 +31,11 @@ from app.models.extracted_entity import (
     ExtractedEntity,
     ExtractionMethod,
 )
+from app.models.inference_provider import (
+    InferenceProvider,
+    ProviderType as InferenceProviderType,
+)
+from app.models.inference_request import InferenceRequest, InferenceStatus
 from app.models.oauth_provider import OAuthProvider, ProviderType
 from app.models.scraped_page import ScrapedPage
 from app.models.scraping_job import JobStatus, ScrapingJob
@@ -50,4 +59,9 @@ __all__ = [
     "EntityType",
     "ExtractionMethod",
     "EntityRelationship",
+    # Inference models
+    "InferenceProvider",
+    "InferenceProviderType",
+    "InferenceRequest",
+    "InferenceStatus",
 ]
