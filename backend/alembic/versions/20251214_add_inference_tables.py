@@ -121,7 +121,7 @@ def upgrade() -> None:
             "rate_limit_preset",
             sa.String(50),
             nullable=True,
-            server_default="'balanced'",
+            server_default="balanced",
         ),
         sa.Column(
             "created_at",
@@ -183,7 +183,7 @@ def upgrade() -> None:
                 create_type=False,
             ),
             nullable=False,
-            server_default="'pending'",
+            server_default="pending",
         ),
         sa.Column("prompt_tokens", sa.Integer(), nullable=True),
         sa.Column("completion_tokens", sa.Integer(), nullable=True),
