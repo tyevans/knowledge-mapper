@@ -28,29 +28,39 @@ def upgrade() -> None:
     """Create inference tables and RLS policies."""
 
     # ==========================================================================
-    # Create Enum Types
+    # Create Enum Types (IF NOT EXISTS for idempotency)
     # ==========================================================================
 
     op.execute(
         """
-        CREATE TYPE inference_provider_type AS ENUM (
-            'ollama',
-            'openai',
-            'anthropic',
-            'groq'
-        );
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'inference_provider_type') THEN
+                CREATE TYPE inference_provider_type AS ENUM (
+                    'ollama',
+                    'openai',
+                    'anthropic',
+                    'groq'
+                );
+            END IF;
+        END$$;
     """
     )
 
     op.execute(
         """
-        CREATE TYPE inference_status AS ENUM (
-            'pending',
-            'in_progress',
-            'completed',
-            'failed',
-            'cancelled'
-        );
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'inference_status') THEN
+                CREATE TYPE inference_status AS ENUM (
+                    'pending',
+                    'in_progress',
+                    'completed',
+                    'failed',
+                    'cancelled'
+                );
+            END IF;
+        END$$;
     """
     )
 
