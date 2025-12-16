@@ -456,44 +456,80 @@ class ExtractionStrategyRouter:
         return await classifier.classify(content, tenant_id=tenant_id)
 
 
-# Module-level singleton and convenience functions
+# Dependency Injection Support
+#
+# Instead of using global singletons, prefer creating ExtractionStrategyRouter
+# instances via dependency injection. This enables:
+# - Easy testing with mock dependencies
+# - Clear dependency flow
+# - No hidden global state
 
 
-_router: ExtractionStrategyRouter | None = None
+class ExtractionStrategyRouterFactory:
+    """Factory for creating ExtractionStrategyRouter instances.
+
+    Use this factory with dependency injection frameworks (like FastAPI's Depends)
+    instead of global singletons.
+
+    Example with FastAPI:
+        from fastapi import Depends
+
+        def get_strategy_router_factory() -> ExtractionStrategyRouterFactory:
+            return ExtractionStrategyRouterFactory()
+
+        @router.post("/extract")
+        async def extract(
+            factory: ExtractionStrategyRouterFactory = Depends(get_strategy_router_factory),
+            inference_provider: InferenceProvider = Depends(get_inference_provider),
+        ):
+            router = factory.create(inference_provider=inference_provider)
+            strategy = await router.route(job, content)
+    """
+
+    def create(
+        self,
+        inference_provider: "InferenceProvider | None" = None,
+        *,
+        classifier: ContentClassifier | None = None,
+        prompt_generator: DomainPromptGenerator | None = None,
+        registry: DomainSchemaRegistry | None = None,
+        job_update_callback: JobUpdateCallback | None = None,
+        confidence_threshold: float = 0.5,
+    ) -> ExtractionStrategyRouter:
+        """Create a new ExtractionStrategyRouter instance.
+
+        Args:
+            inference_provider: LLM provider for classification
+            classifier: Optional pre-configured ContentClassifier
+            prompt_generator: Optional pre-configured DomainPromptGenerator
+            registry: Optional pre-configured DomainSchemaRegistry
+            job_update_callback: Optional callback for updating jobs
+            confidence_threshold: Minimum confidence for classification
+
+        Returns:
+            Configured ExtractionStrategyRouter instance
+        """
+        return ExtractionStrategyRouter(
+            inference_provider=inference_provider,
+            classifier=classifier,
+            prompt_generator=prompt_generator,
+            registry=registry,
+            job_update_callback=job_update_callback,
+            confidence_threshold=confidence_threshold,
+        )
 
 
-def get_strategy_router(
-    inference_provider: "InferenceProvider | None" = None,
-    **kwargs,
-) -> ExtractionStrategyRouter:
-    """Get the singleton strategy router instance.
+# Factory singleton for dependency injection
+_factory = ExtractionStrategyRouterFactory()
 
-    Creates the instance on first call. Subsequent calls return the
-    same instance (ignoring provided parameters).
 
-    Args:
-        inference_provider: LLM provider for classification (first call only).
-        **kwargs: Additional arguments for router initialization.
+def get_strategy_router_factory() -> ExtractionStrategyRouterFactory:
+    """Get the ExtractionStrategyRouterFactory for dependency injection.
 
     Returns:
-        The singleton ExtractionStrategyRouter instance.
+        ExtractionStrategyRouterFactory instance
     """
-    global _router
-    if _router is None:
-        _router = ExtractionStrategyRouter(
-            inference_provider=inference_provider,
-            **kwargs,
-        )
-    return _router
-
-
-def reset_strategy_router() -> None:
-    """Reset the singleton strategy router instance.
-
-    Primarily for testing purposes.
-    """
-    global _router
-    _router = None
+    return _factory
 
 
 async def route_extraction_strategy(
@@ -507,7 +543,7 @@ async def route_extraction_strategy(
     """Convenience function to route extraction strategy.
 
     Creates a temporary router and routes the strategy. For repeated
-    use, consider creating an ExtractionStrategyRouter instance directly.
+    use, consider using ExtractionStrategyRouterFactory with dependency injection.
 
     Args:
         job: The scraping job with extraction configuration.
@@ -543,8 +579,8 @@ async def route_extraction_strategy(
 
 __all__ = [
     "ExtractionStrategyRouter",
+    "ExtractionStrategyRouterFactory",
     "JobUpdateCallback",
-    "get_strategy_router",
-    "reset_strategy_router",
+    "get_strategy_router_factory",
     "route_extraction_strategy",
 ]
