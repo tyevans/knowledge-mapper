@@ -42,7 +42,7 @@ dependencies = [
     # Knowledge Graph (Neo4j)
     "neo4j==5.27.0",
     # LLM Integration (Anthropic Claude)
-    "anthropic==0.42.0",
+    "anthropic==0.75.0",
     # LLM Integration (OpenAI)
     "openai>=1.50.0",
     # Entity Extraction
