@@ -44,6 +44,23 @@ SCOPE_TENANTS_MANAGE = "tenants/manage"
 SCOPE_TENANTS_STORES = "tenants/stores"
 """Manage tenant-to-event-store mappings (platform admin)."""
 
+# Entity Scopes (for knowledge graph entities)
+SCOPE_ENTITIES_READ = "entities/read"
+"""Read access to entities in the tenant's knowledge graph."""
+
+SCOPE_ENTITIES_WRITE = "entities/write"
+"""Write access to create, update, and delete entities."""
+
+# Entity Consolidation Scopes (for merge/deduplication operations)
+SCOPE_CONSOLIDATION_READ = "consolidation/read"
+"""Read access to consolidation review queue and merge history."""
+
+SCOPE_CONSOLIDATION_WRITE = "consolidation/write"
+"""Write access to approve/reject merges and perform manual consolidation."""
+
+SCOPE_CONSOLIDATION_ADMIN = "consolidation/admin"
+"""Administrative access for batch consolidation and configuration changes."""
+
 # All defined scopes (for validation and documentation)
 ALL_SCOPES = {
     SCOPE_STATEMENTS_READ,
@@ -56,6 +73,11 @@ ALL_SCOPES = {
     SCOPE_TENANTS_READ,
     SCOPE_TENANTS_MANAGE,
     SCOPE_TENANTS_STORES,
+    SCOPE_ENTITIES_READ,
+    SCOPE_ENTITIES_WRITE,
+    SCOPE_CONSOLIDATION_READ,
+    SCOPE_CONSOLIDATION_WRITE,
+    SCOPE_CONSOLIDATION_ADMIN,
 }
 
 

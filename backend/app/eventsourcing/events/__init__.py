@@ -1,6 +1,20 @@
 """Event definitions for Knowledge Mapper."""
 
 from app.eventsourcing.events.base import TenantDomainEvent
+from app.eventsourcing.events.consolidation import (
+    AliasCreated,
+    BatchConsolidationCompleted,
+    BatchConsolidationFailed,
+    BatchConsolidationProgress,
+    BatchConsolidationStarted,
+    ConsolidationConfigUpdated,
+    EntitiesMerged,
+    EntitySplit,
+    MergeCandidateIdentified,
+    MergeQueuedForReview,
+    MergeReviewDecision,
+    MergeUndone,
+)
 from app.eventsourcing.events.extraction import (
     ExtractionBatchCompleted,
     ExtractionBatchStarted,
@@ -88,4 +102,17 @@ __all__ = [
     "InferenceCompleted",
     "InferenceFailed",
     "InferenceCancelled",
+    # Consolidation events
+    "AliasCreated",
+    "BatchConsolidationCompleted",
+    "BatchConsolidationFailed",
+    "BatchConsolidationProgress",
+    "BatchConsolidationStarted",
+    "ConsolidationConfigUpdated",
+    "EntitiesMerged",
+    "EntitySplit",
+    "MergeCandidateIdentified",
+    "MergeQueuedForReview",
+    "MergeReviewDecision",
+    "MergeUndone",
 ]

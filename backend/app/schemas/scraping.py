@@ -11,8 +11,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.models.scraping_job import JobStatus
-from app.models.extracted_entity import EntityType, ExtractionMethod
+from app.models.scraping_job import JobStatus, JobStage
+from app.models.extracted_entity import ExtractionMethod
+
+# Note: EntityType enum is no longer used in schemas since entity_type is now
+# stored as a string to support dynamic domain-specific types.
 
 
 # =============================================================================
@@ -71,6 +74,10 @@ class CreateScrapingJobRequest(BaseModel):
         default=True,
         description="Use LLM for semantic entity extraction",
     )
+    extraction_provider_id: Optional[UUID] = Field(
+        None,
+        description="Extraction provider to use (null = use tenant default or global)",
+    )
     custom_settings: dict = Field(
         default_factory=dict,
         description="Additional Scrapy settings",
@@ -117,6 +124,7 @@ class ScrapingJobSummary(BaseModel):
     name: str = Field(..., description="Job name")
     start_url: str = Field(..., description="Starting URL")
     status: JobStatus = Field(..., description="Current status")
+    stage: JobStage | None = Field(None, description="Current pipeline stage")
     pages_crawled: int = Field(..., description="Pages scraped so far")
     entities_extracted: int = Field(..., description="Entities found so far")
     created_at: datetime = Field(..., description="Creation timestamp")
@@ -141,12 +149,20 @@ class ScrapingJobResponse(BaseModel):
     crawl_speed: float = Field(..., description="Requests per second")
     respect_robots_txt: bool = Field(..., description="Honor robots.txt")
     use_llm_extraction: bool = Field(..., description="Use LLM extraction")
+    extraction_provider_id: Optional[UUID] = Field(None, description="Extraction provider ID")
     custom_settings: dict = Field(..., description="Custom Scrapy settings")
     status: JobStatus = Field(..., description="Current status")
+    stage: JobStage | None = Field(None, description="Current pipeline stage")
     celery_task_id: Optional[str] = Field(None, description="Celery task ID")
+    consolidation_task_id: Optional[str] = Field(None, description="Consolidation task ID")
     pages_crawled: int = Field(..., description="Pages scraped")
     entities_extracted: int = Field(..., description="Entities extracted")
     errors_count: int = Field(..., description="Error count")
+    extraction_progress: float = Field(0.0, description="Extraction progress (0.0-1.0)")
+    consolidation_progress: float = Field(0.0, description="Consolidation progress (0.0-1.0)")
+    pages_pending_extraction: int = Field(0, description="Pages pending extraction")
+    consolidation_candidates_found: int = Field(0, description="Merge candidates found")
+    consolidation_auto_merged: int = Field(0, description="Auto-merged entity pairs")
     started_at: Optional[datetime] = Field(None, description="Start time")
     completed_at: Optional[datetime] = Field(None, description="Completion time")
     error_message: Optional[str] = Field(None, description="Error message")
@@ -162,6 +178,7 @@ class JobStatusResponse(BaseModel):
 
     job_id: UUID = Field(..., description="Job ID")
     status: JobStatus = Field(..., description="Current status")
+    stage: JobStage | None = Field(None, description="Current pipeline stage")
     pages_crawled: int = Field(..., description="Pages scraped")
     entities_extracted: int = Field(..., description="Entities extracted")
     errors_count: int = Field(..., description="Error count")
@@ -172,8 +189,31 @@ class JobStatusResponse(BaseModel):
         None,
         ge=0.0,
         le=1.0,
-        description="Estimated progress (0.0-1.0)",
+        description="Estimated overall progress (0.0-1.0)",
     )
+    # Stage-specific progress
+    crawl_progress: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Crawling progress (0.0-1.0)",
+    )
+    extraction_progress: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Extraction progress (0.0-1.0)",
+    )
+    consolidation_progress: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Consolidation progress (0.0-1.0)",
+    )
+    # Consolidation metrics
+    consolidation_candidates_found: int = Field(0, description="Merge candidates found")
+    consolidation_auto_merged: int = Field(0, description="Auto-merged entity pairs")
+    pages_pending_extraction: int = Field(0, description="Pages pending extraction")
 
 
 # =============================================================================
@@ -251,7 +291,7 @@ class ExtractedEntitySummary(BaseModel):
     """Summary view of an extracted entity."""
 
     id: UUID = Field(..., description="Entity ID")
-    entity_type: EntityType = Field(..., description="Entity type")
+    entity_type: str = Field(..., description="Entity type (e.g., 'person', 'organization', 'character')")
     name: str = Field(..., description="Entity name")
     extraction_method: ExtractionMethod = Field(..., description="Extraction method")
     confidence_score: float = Field(..., description="Confidence score")
@@ -267,7 +307,8 @@ class ExtractedEntityDetail(BaseModel):
     id: UUID = Field(..., description="Entity ID")
     tenant_id: UUID = Field(..., description="Tenant ID")
     source_page_id: UUID = Field(..., description="Source page ID")
-    entity_type: EntityType = Field(..., description="Entity type")
+    entity_type: str = Field(..., description="Entity type (e.g., 'person', 'organization', 'character')")
+    original_entity_type: Optional[str] = Field(None, description="Original entity type from LLM before normalization")
     name: str = Field(..., description="Entity name")
     normalized_name: str = Field(..., description="Normalized name")
     description: Optional[str] = Field(None, description="Entity description")
@@ -300,9 +341,9 @@ class EntityRelationshipResponse(BaseModel):
 
     # Expanded entity info (optional)
     source_entity_name: Optional[str] = Field(None, description="Source entity name")
-    source_entity_type: Optional[EntityType] = Field(None, description="Source entity type")
+    source_entity_type: Optional[str] = Field(None, description="Source entity type")
     target_entity_name: Optional[str] = Field(None, description="Target entity name")
-    target_entity_type: Optional[EntityType] = Field(None, description="Target entity type")
+    target_entity_type: Optional[str] = Field(None, description="Target entity type")
 
     class Config:
         from_attributes = True
@@ -344,9 +385,9 @@ class GraphQueryRequest(BaseModel):
         None,
         description="Filter by relationship types",
     )
-    entity_types: Optional[list[EntityType]] = Field(
+    entity_types: Optional[list[str]] = Field(
         None,
-        description="Filter by entity types",
+        description="Filter by entity types (e.g., ['person', 'organization', 'character'])",
     )
     limit: int = Field(
         default=100,
@@ -360,7 +401,7 @@ class GraphNode(BaseModel):
     """A node in the knowledge graph response."""
 
     id: UUID = Field(..., description="Entity ID")
-    entity_type: EntityType = Field(..., description="Entity type")
+    entity_type: str = Field(..., description="Entity type (e.g., 'person', 'organization', 'character')")
     name: str = Field(..., description="Entity name")
     properties: dict = Field(default_factory=dict, description="Entity properties")
 

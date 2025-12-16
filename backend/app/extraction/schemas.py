@@ -336,9 +336,49 @@ class ExtractedEntitySchema(BaseModel):
         min_length=1,
         max_length=512,
     )
-    entity_type: EntityTypeLiteral = Field(
+    entity_type: str = Field(
         description="Type of entity. Use documentation-specific types (function, class, module, pattern, example) for technical docs.",
     )
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def normalize_entity_type(cls, v: str) -> str:
+        """Normalize entity type - map unknown types to 'custom' or closest match."""
+        if not isinstance(v, str):
+            return "custom"
+        v_lower = v.lower().strip()
+        # Map common alternatives to valid types
+        type_mapping = {
+            "character": "person",
+            "human": "person",
+            "individual": "person",
+            "company": "organization",
+            "place": "location",
+            "city": "location",
+            "country": "location",
+            "thing": "product",
+            "item": "product",
+            "idea": "concept",
+            "theme": "concept",
+            "topic": "concept",
+            "method": "function",
+            "procedure": "function",
+            "type": "class",
+            "struct": "class",
+        }
+        if v_lower in type_mapping:
+            return type_mapping[v_lower]
+        # Check if it's a valid literal type
+        valid_types = {
+            "person", "organization", "location", "event", "product",
+            "concept", "document", "date", "custom", "function", "class",
+            "module", "pattern", "example", "parameter", "return_type", "exception"
+        }
+        if v_lower in valid_types:
+            return v_lower
+        # Default to custom for unknown types
+        return "custom"
+
     description: str | None = Field(
         None,
         description="Brief description of the entity (1-2 sentences). Focus on what it is and what it does.",
@@ -401,9 +441,56 @@ class ExtractedRelationshipSchema(BaseModel):
         description="Name of target entity. Must match an entity name from the entities list.",
         min_length=1,
     )
-    relationship_type: RelationshipTypeLiteral = Field(
+    relationship_type: str = Field(
         description="Type of relationship. Describes how source relates to target.",
     )
+
+    @field_validator("relationship_type", mode="before")
+    @classmethod
+    def normalize_relationship_type(cls, v: str) -> str:
+        """Normalize relationship type - map unknown types to 'related_to'."""
+        if not isinstance(v, str):
+            return "related_to"
+        v_lower = v.lower().strip().replace(" ", "_").replace("-", "_")
+        # Map common alternatives
+        type_mapping = {
+            "is_a": "extends",
+            "isa": "extends",
+            "parent": "extends",
+            "child_of": "part_of",
+            "belongs_to": "part_of",
+            "member_of": "part_of",
+            "has": "contains",
+            "owns": "contains",
+            "interacts_with": "related_to",
+            "knows": "related_to",
+            "meets": "related_to",
+            "loves": "related_to",
+            "hates": "related_to",
+            "friend_of": "related_to",
+            "enemy_of": "related_to",
+            "speaks_to": "related_to",
+            "talks_to": "related_to",
+            "married_to": "related_to",
+            "sibling_of": "related_to",
+            "parent_of": "related_to",
+            "child_of": "related_to",
+            "associated_with": "related_to",
+            "connected_to": "related_to",
+            "linked_to": "related_to",
+        }
+        if v_lower in type_mapping:
+            return type_mapping[v_lower]
+        valid_types = {
+            "uses", "implements", "extends", "inherits_from", "contains",
+            "part_of", "calls", "returns", "accepts", "raises", "depends_on",
+            "imports", "requires", "documented_in", "example_of", "demonstrates",
+            "related_to", "references", "defines", "instantiates"
+        }
+        if v_lower in valid_types:
+            return v_lower
+        return "related_to"
+
     confidence: float = Field(
         ge=0.0,
         le=1.0,
@@ -490,19 +577,21 @@ class ExtractionResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_relationship_references(self) -> "ExtractionResult":
-        """Validate that all relationship references exist in entities."""
+        """Filter relationships to only those with valid entity references.
+
+        Instead of failing validation, we filter out relationships that
+        reference non-existent entities. This makes extraction more robust
+        when LLMs return inconsistent entity/relationship data.
+        """
         entity_names = self.get_entity_names()
 
+        valid_relationships = []
         for rel in self.relationships:
-            if rel.source_name.lower() not in entity_names:
-                raise ValueError(
-                    f"Relationship source '{rel.source_name}' not found in entities"
-                )
-            if rel.target_name.lower() not in entity_names:
-                raise ValueError(
-                    f"Relationship target '{rel.target_name}' not found in entities"
-                )
+            if rel.source_name.lower() in entity_names and rel.target_name.lower() in entity_names:
+                valid_relationships.append(rel)
+            # Silently drop invalid relationships instead of failing
 
+        self.relationships = valid_relationships
         return self
 
 

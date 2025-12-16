@@ -66,6 +66,20 @@ common:
       store: inmemory
 
 # -----------------------------------------------------------------------------
+# Ingester Configuration
+# -----------------------------------------------------------------------------
+# Settings for the log ingestion component
+ingester:
+  lifecycler:
+    # Reduce startup delay for faster healthcheck in development
+    join_after: 0s
+    final_sleep: 0s
+    # Time ingester waits after startup before reporting ready (default 15s)
+    min_ready_duration: 0s
+  wal:
+    replay_memory_ceiling: 100MB
+
+# -----------------------------------------------------------------------------
 # Query Range Configuration
 # -----------------------------------------------------------------------------
 # Settings for range queries (queries over a time period)

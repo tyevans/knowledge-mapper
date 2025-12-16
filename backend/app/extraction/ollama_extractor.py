@@ -6,6 +6,7 @@ structured entity and relationship extraction from documentation.
 """
 
 import logging
+import time
 from uuid import UUID
 
 import httpx
@@ -78,6 +79,14 @@ class OllamaExtractionService:
         self._timeout = timeout or settings.OLLAMA_TIMEOUT
         self._default_doc_type = doc_type
 
+        # Create custom httpx client with logging event hooks
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self._timeout, connect=30.0),
+            event_hooks={
+                "response": [self._on_response],
+            },
+        )
+
         # Create pydantic-ai model with OpenAI-compatible API
         # Ollama exposes /v1/chat/completions at {base_url}/v1
         self._ollama_model = OpenAIModel(
@@ -85,6 +94,7 @@ class OllamaExtractionService:
             base_url=f"{self._base_url}/v1",
             # Ollama doesn't require API key but pydantic-ai needs a placeholder
             api_key="ollama",
+            http_client=self._http_client,
         )
 
         # Create agent with structured output
@@ -106,6 +116,43 @@ class OllamaExtractionService:
                 "doc_type": self._default_doc_type.value,
             },
         )
+
+    async def _on_response(self, response: httpx.Response) -> None:
+        """Event hook to log HTTP responses for debugging.
+
+        Logs warning for non-200 responses and info for slow responses (>30s).
+        This helps diagnose Ollama connectivity issues and 500 errors.
+
+        Note: We intentionally do not read the response body here as that would
+        consume it and break downstream processing. The body will be logged
+        when an HTTPStatusError is raised if needed.
+        """
+        # Calculate elapsed time if available
+        elapsed_ms = response.elapsed.total_seconds() * 1000 if response.elapsed else 0
+
+        if response.status_code >= 400:
+            # Log error responses (4xx/5xx) - don't read body to avoid consuming it
+            logger.warning(
+                "Ollama HTTP error response",
+                extra={
+                    "status_code": response.status_code,
+                    "url": str(response.url),
+                    "elapsed_ms": round(elapsed_ms, 2),
+                    "model": self._model,
+                    "reason_phrase": response.reason_phrase,
+                    "content_type": response.headers.get("content-type"),
+                },
+            )
+        elif elapsed_ms > 30000:  # Log slow responses (>30s)
+            logger.info(
+                "Ollama slow response",
+                extra={
+                    "status_code": response.status_code,
+                    "url": str(response.url),
+                    "elapsed_ms": round(elapsed_ms, 2),
+                    "model": self._model,
+                },
+            )
 
     def _get_system_prompt(self, doc_type: DocumentationType | None = None) -> str:
         """Get the system prompt for extraction.
@@ -206,9 +253,26 @@ class OllamaExtractionService:
         )
 
         try:
+            # Log extraction start with context
+            logger.info(
+                "Starting Ollama extraction",
+                extra={
+                    "page_url": page_url,
+                    "content_length": len(content),
+                    "prompt_length": len(prompt),
+                    "truncated": truncated,
+                    "doc_type": effective_doc_type.value,
+                    "model": self._model,
+                },
+            )
+
+            start_time = time.time()
+
             # Run extraction with pydantic-ai
             # pydantic-ai handles structured output validation
             result = await self._agent.run(prompt)
+
+            elapsed_seconds = time.time() - start_time
 
             logger.info(
                 "Extraction completed successfully",
@@ -218,10 +282,29 @@ class OllamaExtractionService:
                     "relationship_count": result.data.relationship_count,
                     "truncated": truncated,
                     "doc_type": effective_doc_type.value,
+                    "elapsed_seconds": round(elapsed_seconds, 2),
+                    "content_length": len(content),
                 },
             )
 
             return result.data
+
+        except httpx.HTTPStatusError as e:
+            # Log HTTP errors (4xx/5xx) with full context
+            logger.error(
+                "Ollama HTTP status error",
+                extra={
+                    "page_url": page_url,
+                    "status_code": e.response.status_code,
+                    "response_text": e.response.text[:500] if e.response.text else None,
+                    "content_length": len(content),
+                    "model": self._model,
+                },
+            )
+            raise ExtractionError(
+                f"Ollama returned HTTP {e.response.status_code}: {e.response.text[:200] if e.response.text else 'No details'}",
+                cause=e,
+            ) from e
 
         except httpx.ConnectError as e:
             logger.error(

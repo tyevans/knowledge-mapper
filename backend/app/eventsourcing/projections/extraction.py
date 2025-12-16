@@ -42,37 +42,46 @@ logger = logging.getLogger(__name__)
 
 def map_entity_type(entity_type_str: str) -> str:
     """
-    Map event entity_type string to EntityType enum value.
+    Map entity type string to storage format.
 
-    Handles case-insensitive matching and provides fallback for unknown types.
+    Changed from enum mapping to string pass-through for dynamic domain support.
+    Normalizes to lowercase and handles formatting for consistency.
+
+    As of the Adaptive Extraction Strategy feature, the database stores
+    entity_type as a String(100) to support domain-specific types like
+    'character', 'theme', 'plot_point' that aren't in the EntityType enum.
 
     Args:
-        entity_type_str: Entity type string from event (e.g., "FUNCTION", "class")
+        entity_type_str: Entity type string from extraction (e.g., "FUNCTION", "character")
 
     Returns:
-        Valid EntityType enum value string (e.g., "function", "class")
+        Normalized entity type string (lowercase, underscores for separators)
     """
-    # Normalize to lowercase for comparison
+    if not entity_type_str:
+        return "custom"
+
+    # Normalize to lowercase and strip whitespace
     normalized = entity_type_str.lower().strip()
 
-    # Check against valid EntityType values
-    valid_values = {e.value for e in EntityType}
+    # Replace spaces and hyphens with underscores for consistency
+    normalized = normalized.replace(" ", "_").replace("-", "_")
 
-    if normalized in valid_values:
-        return normalized
+    # Remove any double underscores that might result
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
 
-    # Handle uppercase enum names (e.g., "FUNCTION" -> "function")
-    for entity_type in EntityType:
-        if entity_type.name.lower() == normalized:
-            return entity_type.value
+    # Strip leading/trailing underscores
+    normalized = normalized.strip("_")
 
-    # Fallback to CUSTOM for unknown types
-    logger.warning(
-        "Unknown entity type '%s', falling back to CUSTOM",
-        entity_type_str,
-        extra={"entity_type": entity_type_str},
-    )
-    return EntityType.CUSTOM.value
+    # Log if this is an unknown type (for observability, not an error)
+    if not EntityType.is_valid(normalized):
+        logger.debug(
+            "Domain-specific entity type '%s' (not in EntityType enum)",
+            normalized,
+            extra={"entity_type": normalized, "original": entity_type_str},
+        )
+
+    return normalized if normalized else "custom"
 
 
 def map_extraction_method(method_str: str) -> str:

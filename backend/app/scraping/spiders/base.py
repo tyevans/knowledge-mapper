@@ -12,7 +12,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 import scrapy
@@ -21,6 +21,60 @@ from scrapy.http import Response
 from app.scraping.items import ScrapedPageItem
 
 logger = logging.getLogger(__name__)
+
+# Wikipedia namespace prefixes that indicate non-article pages
+# These are MediaWiki namespaces that exist across all Wikipedia language editions
+WIKIPEDIA_NON_ARTICLE_PREFIXES = frozenset({
+    "Talk:",
+    "User:",
+    "User_talk:",
+    "Wikipedia:",
+    "Wikipedia_talk:",
+    "WP:",  # Shortcut for Wikipedia:
+    "Project:",  # Alias for Wikipedia:
+    "Project_talk:",
+    "Template:",
+    "Template_talk:",
+    "Category:",
+    "Category_talk:",
+    "Special:",
+    "File:",
+    "File_talk:",
+    "Image:",  # Legacy alias for File:
+    "Image_talk:",
+    "Media:",
+    "Help:",
+    "Help_talk:",
+    "Module:",
+    "Module_talk:",
+    "Portal:",
+    "Portal_talk:",
+    "Draft:",
+    "Draft_talk:",
+    "TimedText:",
+    "TimedText_talk:",
+    "MediaWiki:",
+    "MediaWiki_talk:",
+    "Book:",
+    "Book_talk:",
+    "Education_Program:",
+    "Education_Program_talk:",
+    "Gadget:",
+    "Gadget_talk:",
+    "Gadget_definition:",
+    "Gadget_definition_talk:",
+})
+
+# Query parameters that indicate non-article views (edit mode, history, etc.)
+WIKIPEDIA_NON_ARTICLE_PARAMS = frozenset({
+    "action",  # action=edit, action=history, etc.
+    "oldid",   # Specific revision
+    "diff",    # Diff between revisions
+    "curid",   # Page ID redirect
+    "printable",
+    "mobileaction",
+    "veaction",  # Visual editor
+})
 
 
 class TenantAwareSpider(scrapy.Spider):
@@ -288,6 +342,93 @@ class TenantAwareSpider(scrapy.Spider):
         if any(parsed.path.lower().endswith(ext) for ext in skip_extensions):
             return False
 
+        # Apply Wikipedia-specific filtering for Wikipedia domains
+        if self._is_wikipedia_domain(parsed.netloc):
+            if not self._is_wikipedia_article_url(parsed):
+                logger.debug(
+                    f"Skipping non-article Wikipedia URL: {url}",
+                    extra={"url": url, "job_id": str(self.job_id)},
+                )
+                return False
+
+        return True
+
+    def _is_wikipedia_domain(self, netloc: str) -> bool:
+        """
+        Check if a domain is a Wikipedia or Wikimedia site.
+
+        Matches patterns like:
+        - en.wikipedia.org, de.wikipedia.org, etc.
+        - en.m.wikipedia.org (mobile)
+        - commons.wikimedia.org
+        - en.wiktionary.org, en.wikiquote.org, etc.
+
+        Args:
+            netloc: The network location (domain) from a parsed URL
+
+        Returns:
+            True if this is a Wikipedia/Wikimedia domain
+        """
+        netloc_lower = netloc.lower()
+        wikimedia_domains = (
+            "wikipedia.org",
+            "wikimedia.org",
+            "wiktionary.org",
+            "wikiquote.org",
+            "wikibooks.org",
+            "wikisource.org",
+            "wikinews.org",
+            "wikiversity.org",
+            "wikivoyage.org",
+            "wikidata.org",
+            "mediawiki.org",
+        )
+        return any(netloc_lower.endswith(domain) for domain in wikimedia_domains)
+
+    def _is_wikipedia_article_url(self, parsed) -> bool:
+        """
+        Check if a Wikipedia URL points to an actual article.
+
+        Filters out:
+        - Non-article namespaces (Talk:, User:, Special:, etc.)
+        - Edit/history/diff views
+        - Other non-content pages
+
+        Args:
+            parsed: ParseResult from urlparse()
+
+        Returns:
+            True if URL appears to be an article page
+        """
+        path = parsed.path
+
+        # Must be a wiki page URL
+        if not path.startswith("/wiki/"):
+            # Also allow /w/index.php article views, but filter most
+            if path.startswith("/w/"):
+                return False
+            # Allow root and other paths through (they'll be filtered elsewhere)
+            return True
+
+        # Extract the page title from the path
+        # /wiki/Article_Title -> Article_Title
+        page_title = path[6:]  # Remove "/wiki/" prefix
+
+        # URL decode is not needed here - we check the encoded form
+        # which uses underscores (Talk:Page_title vs Talk:Page title)
+
+        # Check for non-article namespace prefixes
+        for prefix in WIKIPEDIA_NON_ARTICLE_PREFIXES:
+            if page_title.startswith(prefix):
+                return False
+
+        # Check query parameters for non-article views
+        query_params = parse_qs(parsed.query)
+        for param in WIKIPEDIA_NON_ARTICLE_PARAMS:
+            if param in query_params:
+                return False
+
+        # Looks like an article!
         return True
 
     def _handle_error(self, failure):

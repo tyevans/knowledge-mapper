@@ -250,6 +250,40 @@ class ApiClient {
   }
 
   /**
+   * Make a PATCH request to the API
+   */
+  async patch<T, B = unknown>(
+    endpoint: string,
+    body?: B,
+    options: RequestOptions = {}
+  ): Promise<ApiResponse<T>> {
+    try {
+      const headers = await this.getHeaders(options)
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'PATCH',
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        const error = this.handleErrorResponse(response, data)
+        return { success: false, error }
+      }
+
+      return { success: true, data }
+    } catch (error) {
+      const apiError: ApiError = {
+        message: error instanceof Error ? error.message : 'Network error occurred',
+        status: 0,
+        timestamp: new Date().toISOString(),
+      }
+      return { success: false, error: apiError }
+    }
+  }
+
+  /**
    * Make a DELETE request to the API
    */
   async delete<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {

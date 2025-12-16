@@ -17,11 +17,64 @@ from typing import Optional, Sequence
 from eventsource import PostgreSQLEventStore, InMemoryEventStore
 from eventsource.events import DomainEvent, default_registry
 from eventsource.stores import EventStore
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, SyncSessionLocal
+from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _create_worker_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """
+    Create an isolated async session factory for Celery workers.
+
+    This factory uses NullPool (no connection pooling) to avoid asyncpg
+    connection state conflicts when using asyncio.run() multiple times.
+
+    The issue: asyncpg connections are bound to the event loop they were
+    created in. When asyncio.run() closes its loop, those connections become
+    invalid but would remain in a pool. Using NullPool ensures fresh
+    connections for each operation, avoiding "another operation is in progress"
+    errors when event emission follows LLM extraction.
+    """
+    from sqlalchemy.pool import NullPool
+
+    database_url = settings.DATABASE_URL
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    # Use NullPool - creates fresh connections each time, avoiding event loop conflicts
+    worker_engine = create_async_engine(
+        database_url,
+        poolclass=NullPool,  # No pooling - fresh connection per operation
+        echo=settings.DB_ECHO,
+        future=True,
+    )
+
+    return async_sessionmaker(
+        worker_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+
+# Lazily-created worker session factory
+_worker_async_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+
+
+def _get_worker_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Get or create the worker async session factory."""
+    global _worker_async_session_factory
+    if _worker_async_session_factory is None:
+        _worker_async_session_factory = _create_worker_async_session_factory()
+    return _worker_async_session_factory
 
 
 class SyncEventStoreWrapper:
@@ -47,7 +100,10 @@ class SyncEventStoreWrapper:
         """
         Append multiple events synchronously.
 
-        Creates a new event loop to run the async append_events method.
+        Always uses asyncio.run() to ensure a fresh event loop and connection.
+        This avoids "another operation is in progress" errors when mixing
+        multiple async operations in Celery workers.
+
         Events must have aggregate_id and aggregate_type attributes.
         """
         if not events:
@@ -62,32 +118,13 @@ class SyncEventStoreWrapper:
         # (no optimistic locking needed)
         expected_version = 0
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context, need to use run_coroutine_threadsafe
-                import concurrent.futures
-
-                future = asyncio.run_coroutine_threadsafe(
-                    self._store.append_events(
-                        aggregate_id, aggregate_type, list(events), expected_version
-                    ),
-                    loop,
-                )
-                future.result(timeout=30)
-            else:
-                loop.run_until_complete(
-                    self._store.append_events(
-                        aggregate_id, aggregate_type, list(events), expected_version
-                    )
-                )
-        except RuntimeError:
-            # No event loop exists, create one
-            asyncio.run(
-                self._store.append_events(
-                    aggregate_id, aggregate_type, list(events), expected_version
-                )
+        # Always use asyncio.run() for a clean event loop
+        # Combined with NullPool, this ensures a fresh connection each time
+        asyncio.run(
+            self._store.append_events(
+                aggregate_id, aggregate_type, list(events), expected_version
             )
+        )
 
     @property
     def outbox_enabled(self) -> bool:
@@ -170,6 +207,10 @@ def create_sync_event_store() -> SyncEventStoreWrapper:
     Wraps the async PostgreSQLEventStore to provide synchronous methods
     for use in Celery task workers.
 
+    IMPORTANT: Uses an isolated session factory to avoid asyncpg connection
+    state conflicts when multiple asyncio.run() calls are made in the same
+    Celery worker (e.g., LLM extraction followed by event emission).
+
     Returns:
         SyncEventStoreWrapper: Wrapped event store with sync methods
     """
@@ -179,15 +220,17 @@ def create_sync_event_store() -> SyncEventStoreWrapper:
         return SyncEventStoreWrapper(store)
 
     logger.info(
-        "Creating PostgreSQL event store (sync wrapper)",
+        "Creating PostgreSQL event store (sync wrapper with isolated pool)",
         extra={
             "outbox_enabled": settings.EVENT_STORE_OUTBOX_ENABLED,
         },
     )
 
-    # Use AsyncSessionLocal since PostgreSQLEventStore is async internally
+    # Use isolated worker session factory to avoid connection conflicts
+    # with other async operations (like LLM extraction) in Celery workers
+    worker_session_factory = _get_worker_async_session_factory()
     store = PostgreSQLEventStore(
-        session_factory=AsyncSessionLocal,
+        session_factory=worker_session_factory,
         event_registry=default_registry,
         outbox_enabled=settings.EVENT_STORE_OUTBOX_ENABLED,
         enable_tracing=True,

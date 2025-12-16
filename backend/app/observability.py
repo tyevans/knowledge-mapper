@@ -39,21 +39,22 @@ Architecture Notes:
 
 import logging
 import os
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from pythonjsonlogger import jsonlogger
 
 # =============================================================================
 # Configuration
@@ -82,37 +83,88 @@ EXCLUDED_TRACE_ENDPOINTS = frozenset({
 # Logging Configuration
 # =============================================================================
 
-class TraceContextFilter(logging.Filter):
-    """
-    Logging filter that injects OpenTelemetry trace context into log records.
+# Reserved log record attributes that should not be treated as extra fields
+# These are standard Python logging attributes plus our custom trace fields
+RESERVED_LOG_ATTRS = frozenset({
+    "args", "asctime", "created", "exc_info", "exc_text", "filename",
+    "funcName", "levelname", "levelno", "lineno", "module", "msecs",
+    "message", "msg", "name", "pathname", "process", "processName",
+    "relativeCreated", "stack_info", "thread", "threadName", "taskName",
+    # Our custom trace context fields
+    "trace_id", "span_id", "service",
+})
 
-    This filter adds otelTraceID and otelSpanID attributes to every log record,
-    extracting them from the current OpenTelemetry span context. If no active
-    span exists, it provides empty string defaults to avoid format errors.
+
+class StructuredJsonFormatter(jsonlogger.JsonFormatter):
+    """
+    JSON formatter that includes OpenTelemetry trace context and extra fields.
+
+    This formatter outputs structured JSON logs that include:
+    - Standard log fields (timestamp, level, logger name, message)
+    - OpenTelemetry trace context (trace_id, span_id)
+    - Service name for multi-service environments
+    - All extra fields passed via logger.info("msg", extra={...})
+
+    The JSON output is easy to parse in Loki/Grafana and other log aggregators.
     """
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Add trace context to the log record."""
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Define the base format with standard fields
+        # Additional fields from extra={} are automatically added
+        super().__init__(
+            *args,
+            **kwargs,
+            timestamp=True,
+        )
+        self.service_name = os.getenv("OTEL_SERVICE_NAME", "backend")
+
+    def add_fields(
+        self,
+        log_record: dict[str, Any],
+        record: logging.LogRecord,
+        message_dict: dict[str, Any],
+    ) -> None:
+        """Add custom fields to the JSON log record."""
+        super().add_fields(log_record, record, message_dict)
+
+        # Add standard fields
+        log_record["level"] = record.levelname
+        log_record["logger"] = record.name
+        log_record["service"] = self.service_name
+
+        # Add OpenTelemetry trace context
         span = trace.get_current_span()
         if span and span.is_recording():
             ctx = span.get_span_context()
-            record.otelTraceID = format(ctx.trace_id, '032x')
-            record.otelSpanID = format(ctx.span_id, '016x')
-        else:
-            record.otelTraceID = ""
-            record.otelSpanID = ""
-        return True
+            log_record["trace_id"] = format(ctx.trace_id, '032x')
+            log_record["span_id"] = format(ctx.span_id, '016x')
+
+        # Add all extra fields that aren't reserved attributes
+        # This captures everything passed via extra={...}
+        for key, value in record.__dict__.items():
+            if key not in RESERVED_LOG_ATTRS and not key.startswith('_'):
+                # Skip if already in log_record (avoid duplicates)
+                if key not in log_record:
+                    log_record[key] = value
 
 
 def _configure_logging() -> None:
     """
-    Configure structured logging with optional trace context.
+    Configure structured JSON logging with trace context.
 
-    In production mode, log format includes trace_id and span_id for
-    correlation with distributed traces in Grafana.
+    In production mode, outputs JSON logs with:
+    - Timestamp, level, logger name, message
+    - OpenTelemetry trace_id and span_id for correlation
+    - All extra fields from logger calls
 
-    In test mode (TESTING=true), uses simplified format to avoid
-    noise from empty trace context during pytest.
+    In test mode (TESTING=true), uses simplified text format to avoid
+    noise during pytest.
+
+    Example JSON output:
+        {"timestamp": "2025-01-15T10:30:00Z", "level": "INFO",
+         "logger": "app.tasks.extraction", "message": "Extraction progress",
+         "service": "backend", "trace_id": "abc123...", "span_id": "def456...",
+         "job_id": "uuid-here", "pages_completed": 5, "total_pages": 10}
     """
     is_testing = os.getenv("TESTING", "false").lower() == "true"
 
@@ -125,20 +177,10 @@ def _configure_logging() -> None:
             force=True
         )
     else:
-        # Production format with trace context for correlation
-        # Allows filtering logs by trace_id in Grafana/Loki
-        log_format = (
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s - "
-            "trace_id=%(otelTraceID)s span_id=%(otelSpanID)s"
-        )
-
-        # Create handler with filter that injects trace context
-        # The filter must be on the handler to ensure trace fields are
-        # injected before the formatter tries to use them
+        # JSON format for production - includes all extra fields
         handler = logging.StreamHandler()
         handler.setLevel(logging.INFO)
-        handler.setFormatter(logging.Formatter(log_format))
-        handler.addFilter(TraceContextFilter())
+        handler.setFormatter(StructuredJsonFormatter())
 
         # Configure root logger
         root_logger = logging.getLogger()

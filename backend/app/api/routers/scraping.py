@@ -15,13 +15,13 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies.auth import CurrentUserWithTenant
 from app.api.dependencies.tenant import TenantSession
 from app.celery_app import celery_app
-from app.models.scraping_job import JobStatus, ScrapingJob
+from app.models.scraping_job import JobStatus, JobStage, ScrapingJob
 from app.tasks.scraping import run_scraping_job
 from app.models.scraped_page import ScrapedPage
 from app.models.extracted_entity import (
@@ -176,6 +176,28 @@ async def create_scraping_job(
     The job is created in 'pending' status and must be started explicitly
     using the start endpoint.
     """
+    tenant_id = UUID(user.tenant_id)
+
+    # Validate extraction provider if specified
+    extraction_provider_id = None
+    if request.extraction_provider_id:
+        from app.models.extraction_provider import ExtractionProvider
+
+        result = await db.execute(
+            select(ExtractionProvider).where(
+                ExtractionProvider.id == request.extraction_provider_id,
+                ExtractionProvider.tenant_id == tenant_id,
+                ExtractionProvider.is_active == True,
+            )
+        )
+        provider = result.scalar_one_or_none()
+        if not provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or inactive extraction provider",
+            )
+        extraction_provider_id = provider.id
+
     # Extract domain from start_url if allowed_domains is empty
     allowed_domains = request.allowed_domains
     if not allowed_domains:
@@ -186,7 +208,7 @@ async def create_scraping_job(
 
     # Create the job
     job = ScrapingJob(
-        tenant_id=UUID(user.tenant_id),
+        tenant_id=tenant_id,
         created_by_user_id=user.user_id,
         name=request.name,
         start_url=str(request.start_url),
@@ -198,6 +220,7 @@ async def create_scraping_job(
         crawl_speed=request.crawl_speed,
         respect_robots_txt=request.respect_robots_txt,
         use_llm_extraction=request.use_llm_extraction,
+        extraction_provider_id=extraction_provider_id,
         custom_settings=request.custom_settings,
         status=JobStatus.PENDING,
     )
@@ -421,16 +444,28 @@ async def get_job_status(
     """Get the current status and progress of a scraping job."""
     job = await _get_job_or_404(db, job_id, user.tenant_id)
 
-    # Calculate estimated progress
-    estimated_progress = None
-    if job.status == JobStatus.RUNNING and job.max_pages > 0:
-        estimated_progress = min(1.0, job.pages_crawled / job.max_pages)
-    elif job.status == JobStatus.COMPLETED:
+    # Calculate crawl progress
+    crawl_progress = None
+    if job.max_pages > 0:
+        crawl_progress = min(1.0, job.pages_crawled / job.max_pages)
+
+    # Calculate overall estimated progress based on stage
+    # Weights: Crawling=40%, Extracting=30%, Consolidating=30%
+    if job.stage == JobStage.CRAWLING:
+        estimated_progress = (crawl_progress or 0.0) * 0.4
+    elif job.stage == JobStage.EXTRACTING:
+        estimated_progress = 0.4 + (job.extraction_progress * 0.3)
+    elif job.stage == JobStage.CONSOLIDATING:
+        estimated_progress = 0.7 + (job.consolidation_progress * 0.3)
+    elif job.stage == JobStage.DONE:
         estimated_progress = 1.0
+    else:
+        estimated_progress = 0.0
 
     return JobStatusResponse(
         job_id=job.id,
         status=job.status,
+        stage=job.stage,
         pages_crawled=job.pages_crawled,
         entities_extracted=job.entities_extracted,
         errors_count=job.errors_count,
@@ -438,6 +473,12 @@ async def get_job_status(
         completed_at=job.completed_at,
         error_message=job.error_message,
         estimated_progress=estimated_progress,
+        crawl_progress=crawl_progress,
+        extraction_progress=job.extraction_progress,
+        consolidation_progress=job.consolidation_progress,
+        consolidation_candidates_found=job.consolidation_candidates_found,
+        consolidation_auto_merged=job.consolidation_auto_merged,
+        pages_pending_extraction=job.pages_pending_extraction,
     )
 
 
@@ -474,9 +515,26 @@ async def start_scraping_job(
     job.status = JobStatus.QUEUED
     job.updated_at = datetime.now(timezone.utc)
 
+    # Commit status change BEFORE queueing Celery task so the worker can see
+    # the QUEUED status when it queries the database
+    await db.commit()
+
     # Submit to Celery for background processing
     task = run_scraping_job.delay(str(job.id), user.tenant_id)
-    job.celery_task_id = task.id
+
+    # Use a raw UPDATE to save the celery_task_id - this avoids StaleDataError
+    # if the Celery worker has already modified the row (which sets its own task ID).
+    # The Celery task sets self.request.id as the task ID, so this is just a
+    # best-effort save of the same value; if it races, the worker's value wins.
+    await db.execute(
+        update(ScrapingJob)
+        .where(ScrapingJob.id == job.id)
+        .values(celery_task_id=task.id)
+    )
+    await db.commit()
+
+    # Refresh job to get latest state for response
+    await db.refresh(job)
 
     logger.info(
         "Scraping job queued",
@@ -787,9 +845,9 @@ async def list_job_entities(
     db: DbSession,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    entity_type: Optional[EntityType] = Query(
+    entity_type: Optional[str] = Query(
         None,
-        description="Filter by entity type",
+        description="Filter by entity type (e.g., 'person', 'organization', 'character')",
     ),
 ) -> PaginatedResponse:
     """List all entities extracted from a job."""
@@ -807,7 +865,8 @@ async def list_job_entities(
     )
 
     if entity_type:
-        query = query.where(ExtractedEntity.entity_type == entity_type)
+        # entity_type is now a string column
+        query = query.where(ExtractedEntity.entity_type == entity_type.lower())
 
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
@@ -849,9 +908,9 @@ async def list_entities(
     db: DbSession,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    entity_type: Optional[EntityType] = Query(
+    entity_type: Optional[str] = Query(
         None,
-        description="Filter by entity type",
+        description="Filter by entity type (e.g., 'person', 'organization', 'character')",
     ),
     search: Optional[str] = Query(
         None,
@@ -866,7 +925,8 @@ async def list_entities(
     )
 
     if entity_type:
-        query = query.where(ExtractedEntity.entity_type == entity_type)
+        # entity_type is now a string column
+        query = query.where(ExtractedEntity.entity_type == entity_type.lower())
 
     if search:
         query = query.where(

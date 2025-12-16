@@ -140,27 +140,20 @@ class TenantResolutionMiddleware(BaseHTTPMiddleware):
                     f"Tenant ID not available for {request.method} {request.url.path} - "
                     "user not authenticated or missing tenant"
                 )
-                # Continue without setting tenant context
-                # If the endpoint requires it, downstream handlers will fail
-                return await call_next(request)
+            else:
+                # Store tenant_id in request state for downstream handlers
+                request.state.tenant_id = tenant_id
 
-            # Store tenant_id in request state for downstream handlers
-            request.state.tenant_id = tenant_id
+                # Also set in contextvars for application-level tracking
+                set_current_tenant(tenant_id)
 
-            # Also set in contextvars for application-level tracking
-            set_current_tenant(tenant_id)
-
-            logger.info(
-                f"Tenant resolved: {tenant_id} for {request.method} {request.url.path}"
-            )
-
-            # Call downstream handlers with tenant context set
-            response = await call_next(request)
-
-            return response
+                logger.info(
+                    f"Tenant resolved: {tenant_id} for {request.method} {request.url.path}"
+                )
 
         except Exception as e:
-            # Catch any unexpected errors during tenant resolution
+            # Only catch exceptions from tenant resolution logic itself,
+            # not from route handlers
             logger.error(
                 f"Tenant resolution failed for {request.method} {request.url.path}: "
                 f"{type(e).__name__}: {e}"
@@ -176,6 +169,11 @@ class TenantResolutionMiddleware(BaseHTTPMiddleware):
                 },
             )
 
+        # Call downstream handlers OUTSIDE the try/except block
+        # so their exceptions are not wrapped in "tenant_resolution_error"
+        try:
+            response = await call_next(request)
+            return response
         finally:
             # CRITICAL: Always clear tenant context after request completes
             # This ensures no context leakage between requests in async environments

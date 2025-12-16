@@ -1,6 +1,7 @@
 """Projection base classes and handlers for read models."""
 
 from app.eventsourcing.projections.base import TenantAwareProjection
+from app.eventsourcing.projections.consolidation import ConsolidationProjectionHandler
 from app.eventsourcing.projections.extraction import (
     EntityProjectionHandler,
     ExtractionProcessProjectionHandler,
@@ -25,6 +26,8 @@ __all__ = [
     # Neo4j sync projections
     "Neo4jEntitySyncHandler",
     "Neo4jRelationshipSyncHandler",
+    # Consolidation projections
+    "ConsolidationProjectionHandler",
     # Utilities
     "map_entity_type",
     "map_extraction_method",
