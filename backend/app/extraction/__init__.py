@@ -84,8 +84,9 @@ from app.extraction.worker import (
 )
 from app.extraction.strategy_router import (
     ExtractionStrategyRouter,
-    get_strategy_router,
-    reset_strategy_router,
+    ExtractionStrategyRouterFactory,
+    JobUpdateCallback,
+    get_strategy_router_factory,
     route_extraction_strategy,
 )
 from app.extraction.classifier import (
@@ -161,8 +162,9 @@ __all__ = [
     "PageContentNotFoundError",
     # Strategy routing
     "ExtractionStrategyRouter",
-    "get_strategy_router",
-    "reset_strategy_router",
+    "ExtractionStrategyRouterFactory",
+    "JobUpdateCallback",
+    "get_strategy_router_factory",
     "route_extraction_strategy",
     # Content classification
     "ContentClassifier",
