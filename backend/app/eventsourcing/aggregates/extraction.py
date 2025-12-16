@@ -199,10 +199,8 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
         if self.version > 0:
             raise ValueError("Extraction has already been requested for this process")
 
-        event = ExtractionRequested(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            ExtractionRequested,
             tenant_id=tenant_id,
             page_id=page_id,
             page_url=page_url,
@@ -210,7 +208,6 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
             extraction_config=config or {},
             requested_at=datetime.now(UTC),
         )
-        self._raise_event(event)
 
     def start(self, worker_id: str) -> None:
         """
@@ -233,16 +230,13 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
                 f"Only PENDING extractions can be started."
             )
 
-        event = ExtractionStarted(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            ExtractionStarted,
             tenant_id=self._state.tenant_id,
             page_id=self._state.page_id,
             worker_id=worker_id,
             started_at=datetime.now(UTC),
         )
-        self._raise_event(event)
 
     def record_entity(
         self,
@@ -289,10 +283,8 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
 
         entity_id = uuid4()
 
-        event = EntityExtracted(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            EntityExtracted,
             tenant_id=self._state.tenant_id,
             entity_id=entity_id,
             page_id=self._state.page_id,
@@ -306,7 +298,6 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
             confidence_score=confidence_score,
             source_text=source_text,
         )
-        self._raise_event(event)
         return entity_id
 
     def record_relationship(
@@ -346,10 +337,8 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
 
         relationship_id = uuid4()
 
-        event = RelationshipDiscovered(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            RelationshipDiscovered,
             tenant_id=self._state.tenant_id,
             relationship_id=relationship_id,
             page_id=self._state.page_id,
@@ -359,7 +348,6 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
             confidence_score=confidence_score,
             context=context,
         )
-        self._raise_event(event)
         return relationship_id
 
     def complete(self, duration_ms: int, extraction_method: str) -> None:
@@ -382,10 +370,8 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
                 f"Extraction must be IN_PROGRESS."
             )
 
-        event = ExtractionCompleted(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            ExtractionCompleted,
             tenant_id=self._state.tenant_id,
             page_id=self._state.page_id,
             entity_count=len(self._state.entities),
@@ -394,7 +380,6 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
             extraction_method=extraction_method,
             completed_at=datetime.now(UTC),
         )
-        self._raise_event(event)
 
     def fail(
         self,
@@ -422,10 +407,8 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
                 f"Extraction must be IN_PROGRESS."
             )
 
-        event = ExtractionProcessFailed(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            ExtractionProcessFailed,
             tenant_id=self._state.tenant_id,
             page_id=self._state.page_id,
             error_message=error_message,
@@ -434,7 +417,6 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
             retryable=retryable,
             failed_at=datetime.now(UTC),
         )
-        self._raise_event(event)
 
     def schedule_retry(self, scheduled_for: datetime, backoff_seconds: float) -> None:
         """
@@ -459,17 +441,14 @@ class ExtractionProcess(DeclarativeAggregate[ExtractionProcessState]):
         if not self._state.retryable:
             raise ValueError("Cannot retry: extraction is marked as non-retryable")
 
-        event = ExtractionRetryScheduled(
-            aggregate_id=self.aggregate_id,
-            aggregate_type=self.aggregate_type,
-            aggregate_version=self.get_next_version(),
+        self.create_event(
+            ExtractionRetryScheduled,
             tenant_id=self._state.tenant_id,
             page_id=self._state.page_id,
             retry_number=self._state.retry_count + 1,
             scheduled_for=scheduled_for,
             backoff_seconds=backoff_seconds,
         )
-        self._raise_event(event)
 
     # =========================================================================
     # Event Handlers

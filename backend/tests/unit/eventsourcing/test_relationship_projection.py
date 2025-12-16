@@ -197,7 +197,7 @@ class TestHandleRelationshipDiscovered:
         assert params["target_entity_id"] == target_entity_id
         assert params["relationship_type"] == "WORKS_FOR"  # Uppercase
         assert params["confidence_score"] == 0.9
-        assert params["properties"] == {"context": "PersonA works at CompanyB"}
+        assert params["properties"] == '{"context": "PersonA works at CompanyB"}'
 
     @pytest.mark.asyncio
     async def test_skips_when_source_entity_missing(self):
@@ -279,7 +279,7 @@ class TestHandleRelationshipDiscovered:
 
         call_args = mock_conn.execute.call_args
         params = call_args[0][1]
-        assert params["properties"] == {}
+        assert params["properties"] == '{}'
 
 
 class TestRelationshipProjectionIdempotency:

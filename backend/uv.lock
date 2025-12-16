@@ -737,16 +737,16 @@ wheels = [
 
 [[package]]
 name = "eventsource-py"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "redis" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/24/16cb68b7a9555689d1fdcd764f66981fe863c1ab8514915dd85c141239ac/eventsource_py-0.4.0.tar.gz", hash = "sha256:5f7080995c9a440ee1fb495194a072ae02695c9a53e8e03a30aee95cba9c542f", size = 1583763, upload-time = "2025-12-14T05:46:10.962Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/88/59042cdd9ab8ac409bb41076f452a35db67e1030eee280fab2000513e7fd/eventsource_py-0.5.0.tar.gz", hash = "sha256:0eb5c7651216794c53a34623fd9ef9b0cb4180a27a52cd889aabe0b83673aee8", size = 1651910, upload-time = "2025-12-16T01:27:07.404Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/3b/bfca7423911fd47196a3bac1d91a866c5a51e11ec374da8fcc7a9f1b5e93/eventsource_py-0.4.0-py3-none-any.whl", hash = "sha256:ca6a076bb016ec5615eff2c5554362e56f6fccca79af60565436d56b0791357d", size = 528635, upload-time = "2025-12-14T05:46:08.868Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/e1/d8f20ac0e9c8db8aa32abfc053c6739ff036b85fcd25185970230eb0316e/eventsource_py-0.5.0-py3-none-any.whl", hash = "sha256:d1de63802e6f5972d55772e0eaab5bc28733187351c69e4b6941d1877e451e9a", size = 559439, upload-time = "2025-12-16T01:27:05.528Z" },
 ]
 
 [package.optional-dependencies]
@@ -1451,7 +1451,7 @@ requires-dist = [
     { name = "authlib", specifier = "==1.6.0" },
     { name = "celery", extras = ["redis"], specifier = "==5.4.0" },
     { name = "cryptography", specifier = "==45.0.4" },
-    { name = "eventsource-py", extras = ["all"], specifier = ">=0.4.0" },
+    { name = "eventsource-py", extras = ["all"], specifier = ">=0.5.0" },
     { name = "extruct", specifier = "==0.18.0" },
     { name = "fastapi", specifier = "==0.124.4" },
     { name = "flower", specifier = "==2.0.1" },

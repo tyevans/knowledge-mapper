@@ -10,13 +10,14 @@ Factory Functions:
     - close_event_store(): Cleanup for application shutdown
 """
 
-import asyncio
 import logging
-from typing import Optional, Sequence
+from collections.abc import Sequence
+from typing import Optional
 
 from eventsource import PostgreSQLEventStore, InMemoryEventStore
 from eventsource.events import DomainEvent, default_registry
 from eventsource.stores import EventStore
+from eventsource.sync import SyncEventStoreAdapter
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -79,20 +80,26 @@ def _get_worker_async_session_factory() -> async_sessionmaker[AsyncSession]:
 
 class SyncEventStoreWrapper:
     """
-    Wrapper that provides sync methods for async event stores.
+    Thin wrapper over eventsource.sync.SyncEventStoreAdapter.
 
-    Used by Celery tasks which run in a synchronous context but need
-    to interact with the async PostgreSQLEventStore.
+    Provides backward-compatible convenience methods for Celery tasks:
+    - append_sync(event): Append a single event
+    - append_events_sync(events): Append multiple events
+
+    Uses the library's SyncEventStoreAdapter for proper async/sync bridging
+    with timeout handling and thread safety.
     """
 
-    def __init__(self, event_store: EventStore):
+    def __init__(self, event_store: EventStore, timeout: float = 30.0):
         self._store = event_store
+        self._adapter = SyncEventStoreAdapter(event_store, timeout=timeout)
 
     def append_sync(self, event: DomainEvent) -> None:
         """
         Append a single event synchronously.
 
-        Creates a new event loop to run the async append_events method.
+        Args:
+            event: The event to append
         """
         self.append_events_sync([event])
 
@@ -100,11 +107,11 @@ class SyncEventStoreWrapper:
         """
         Append multiple events synchronously.
 
-        Always uses asyncio.run() to ensure a fresh event loop and connection.
-        This avoids "another operation is in progress" errors when mixing
-        multiple async operations in Celery workers.
-
         Events must have aggregate_id and aggregate_type attributes.
+        Uses version 0 (no optimistic locking) for notification events.
+
+        Args:
+            events: Sequence of events to append
         """
         if not events:
             return
@@ -116,14 +123,11 @@ class SyncEventStoreWrapper:
 
         # For notification events outside aggregate context, use version 0
         # (no optimistic locking needed)
-        expected_version = 0
-
-        # Always use asyncio.run() for a clean event loop
-        # Combined with NullPool, this ensures a fresh connection each time
-        asyncio.run(
-            self._store.append_events(
-                aggregate_id, aggregate_type, list(events), expected_version
-            )
+        self._adapter.append_events_sync(
+            aggregate_id=aggregate_id,
+            aggregate_type=aggregate_type,
+            events=list(events),
+            expected_version=0,
         )
 
     @property
