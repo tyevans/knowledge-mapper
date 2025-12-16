@@ -12,9 +12,14 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SQLEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from typing import Literal
+
+# Type alias for extraction strategy values
+ExtractionStrategyType = Literal["legacy", "auto_detect", "manual"]
 
 from app.core.database import Base
 
@@ -67,6 +72,11 @@ class ScrapingJob(Base):
         crawl_speed: Requests per second limit
         respect_robots_txt: Honor robots.txt rules
         custom_settings: Additional Scrapy settings
+        extraction_strategy: Extraction approach (legacy, auto_detect, manual)
+        content_domain: Detected or selected domain ID
+        classification_confidence: Confidence score from auto-detection
+        inferred_schema: Snapshot of domain schema for extraction
+        classification_sample_size: Pages to sample for classification (1-5)
         status: Current job status
         celery_task_id: Celery task ID for control
         pages_crawled: Number of pages successfully scraped
@@ -77,9 +87,30 @@ class ScrapingJob(Base):
         error_message: Last error message if failed
         created_at: Timestamp of creation (inherited)
         updated_at: Timestamp of last update (inherited)
+
+    Properties:
+        uses_adaptive_extraction: True if using auto_detect or manual strategy
+        needs_classification: True if classification is still needed
+        is_domain_resolved: True if domain is set or not needed (legacy)
     """
 
     __tablename__ = "scraping_jobs"
+
+    # Table-level constraints for adaptive extraction strategy
+    __table_args__ = (
+        CheckConstraint(
+            "extraction_strategy IN ('legacy', 'auto_detect', 'manual')",
+            name="ck_scraping_jobs_extraction_strategy",
+        ),
+        CheckConstraint(
+            "classification_sample_size >= 1 AND classification_sample_size <= 5",
+            name="ck_scraping_jobs_classification_sample_size",
+        ),
+        CheckConstraint(
+            "classification_confidence IS NULL OR (classification_confidence >= 0.0 AND classification_confidence <= 1.0)",
+            name="ck_scraping_jobs_classification_confidence",
+        ),
+    )
 
     # Primary key - UUID for security
     id: Mapped[uuid.UUID] = mapped_column(
@@ -195,6 +226,43 @@ class ScrapingJob(Base):
         default=dict,
         insert_default=dict,
         comment="Additional Scrapy settings",
+    )
+
+    # Adaptive Extraction Strategy columns
+    extraction_strategy: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="legacy",
+        server_default="legacy",
+        index=True,
+        comment="Extraction strategy: legacy, auto_detect, or manual",
+    )
+
+    content_domain: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+        comment="Content domain ID (e.g., literature_fiction)",
+    )
+
+    classification_confidence: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Classification confidence score (0.0-1.0)",
+    )
+
+    inferred_schema: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Snapshot of domain schema used for extraction",
+    )
+
+    classification_sample_size: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+        comment="Number of pages to sample for classification (1-5)",
     )
 
     # Status tracking
@@ -354,6 +422,11 @@ class ScrapingJob(Base):
             kwargs["status"] = JobStatus.PENDING
         if "stage" not in kwargs:
             kwargs["stage"] = JobStage.CRAWLING
+        # Adaptive extraction defaults
+        if "extraction_strategy" not in kwargs:
+            kwargs["extraction_strategy"] = "legacy"
+        if "classification_sample_size" not in kwargs:
+            kwargs["classification_sample_size"] = 1
         super().__init__(**kwargs)
 
     def __repr__(self) -> str:
@@ -374,3 +447,45 @@ class ScrapingJob(Base):
     def can_stop(self) -> bool:
         """Check if job can be stopped."""
         return self.status in (JobStatus.QUEUED, JobStatus.RUNNING)
+
+    @property
+    def uses_adaptive_extraction(self) -> bool:
+        """Check if this job uses adaptive extraction.
+
+        Adaptive extraction is used when the extraction strategy is either
+        'auto_detect' (domain determined by content classification) or
+        'manual' (domain specified by user).
+
+        Returns:
+            True if using adaptive extraction, False for legacy extraction.
+        """
+        return self.extraction_strategy in ("auto_detect", "manual")
+
+    @property
+    def needs_classification(self) -> bool:
+        """Check if this job needs content classification.
+
+        Classification is needed when using auto_detect strategy and
+        the content domain has not yet been determined.
+
+        Returns:
+            True if classification is needed, False otherwise.
+        """
+        return (
+            self.extraction_strategy == "auto_detect"
+            and self.content_domain is None
+        )
+
+    @property
+    def is_domain_resolved(self) -> bool:
+        """Check if the content domain has been determined.
+
+        For legacy strategy, this always returns True since domains are not used.
+        For adaptive strategies, returns True when content_domain is set.
+
+        Returns:
+            True if domain is resolved or not needed, False if still pending.
+        """
+        if self.extraction_strategy == "legacy":
+            return True  # Legacy doesn't use domains
+        return self.content_domain is not None

@@ -11,6 +11,9 @@ This package provides:
 - Retry logic with exponential backoff for resilient extraction
 - Circuit breaker pattern for Ollama failure handling
 - Extraction worker task for background processing
+- Adaptive extraction with domain-specific schemas
+- Content classification for automatic domain detection
+- Strategy routing for extraction mode selection (legacy, manual, auto_detect)
 """
 
 from app.extraction.schema_org import (
@@ -79,6 +82,24 @@ from app.extraction.worker import (
     ProcessNotFoundError,
     PageContentNotFoundError,
 )
+from app.extraction.strategy_router import (
+    ExtractionStrategyRouter,
+    get_strategy_router,
+    reset_strategy_router,
+    route_extraction_strategy,
+)
+from app.extraction.classifier import (
+    ContentClassifier,
+    classify_content,
+)
+from app.extraction.prompt_generator import (
+    DomainPromptGenerator,
+    generate_extraction_prompt,
+    generate_output_schema,
+    generate_user_prompt,
+    get_prompt_generator,
+    reset_prompt_generator,
+)
 
 __all__ = [
     # Extraction functions
@@ -138,4 +159,19 @@ __all__ = [
     "ExtractionWorkerError",
     "ProcessNotFoundError",
     "PageContentNotFoundError",
+    # Strategy routing
+    "ExtractionStrategyRouter",
+    "get_strategy_router",
+    "reset_strategy_router",
+    "route_extraction_strategy",
+    # Content classification
+    "ContentClassifier",
+    "classify_content",
+    # Prompt generation
+    "DomainPromptGenerator",
+    "generate_extraction_prompt",
+    "generate_output_schema",
+    "generate_user_prompt",
+    "get_prompt_generator",
+    "reset_prompt_generator",
 ]

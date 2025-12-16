@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "add_llm_openai_enum"
-down_revision = None  # Will be determined by alembic
+down_revision = "v2w3x4y5z6a1"  # After adaptive extraction columns migration
 branch_labels = None
 depends_on = None
 
