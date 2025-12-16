@@ -18,7 +18,7 @@ dependencies = [
     # CORS and middleware
     "python-multipart==0.0.20",
     # Environment and configuration
-    "python-dotenv==1.1.0",
+    "python-dotenv==1.2.1",
     # JWT and OAuth
     "pyjwt[crypto]==2.10.1",
     "cryptography==45.0.4",
