@@ -9,6 +9,7 @@ This router handles job management operations:
 - Deleting jobs
 
 Follows Single Responsibility Principle by focusing only on job lifecycle.
+Uses Repository pattern for extraction provider lookups (DIP compliance).
 """
 
 import logging
@@ -28,6 +29,11 @@ from app.api.routers.scraping.helpers import (
 from app.eventsourcing.events.scraping import ScrapingJobCreated
 from app.eventsourcing.stores.factory import get_event_store
 from app.models.scraping_job import JobStatus, ScrapingJob
+from app.repositories.extraction_provider import (
+    ExtractionProviderRepo,
+    ExtractionProviderNotFoundError,
+    ExtractionProviderInactiveError,
+)
 from app.schemas.scraping import (
     CreateScrapingJobRequest,
     PaginatedResponse,
@@ -56,6 +62,7 @@ async def create_scraping_job(
     request: CreateScrapingJobRequest,
     user: CurrentUserWithTenant,
     db: DbSession,
+    extraction_provider_repo: ExtractionProviderRepo,
 ) -> ScrapingJob:
     """
     Create a new scraping job.
@@ -65,25 +72,20 @@ async def create_scraping_job(
     """
     tenant_id = UUID(user.tenant_id)
 
-    # Validate extraction provider if specified
+    # Validate extraction provider if specified (using repository abstraction)
     extraction_provider_id = None
     if request.extraction_provider_id:
-        from app.models.extraction_provider import ExtractionProvider
-
-        result = await db.execute(
-            select(ExtractionProvider).where(
-                ExtractionProvider.id == request.extraction_provider_id,
-                ExtractionProvider.tenant_id == tenant_id,
-                ExtractionProvider.is_active.is_(True),
+        try:
+            provider = await extraction_provider_repo.require_active_by_id(
+                request.extraction_provider_id,
+                tenant_id,
             )
-        )
-        provider = result.scalar_one_or_none()
-        if not provider:
+            extraction_provider_id = provider.id
+        except (ExtractionProviderNotFoundError, ExtractionProviderInactiveError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or inactive extraction provider",
             )
-        extraction_provider_id = provider.id
 
     # Extract domain from start_url if allowed_domains is empty
     allowed_domains = request.allowed_domains
