@@ -21,7 +21,7 @@ dependencies = [
     "python-dotenv==1.1.0",
     # JWT and OAuth
     "pyjwt[crypto]==2.10.1",
-    "cryptography==45.0.4",
+    "cryptography==46.0.3",
     "authlib==1.6.0",
     # Redis client
     "redis[hiredis]==5.3.1",
