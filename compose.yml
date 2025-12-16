@@ -127,6 +127,10 @@ services:
       KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-knowledge-mapper}
       KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
 
+      # Celery (for queueing background tasks from API endpoints)
+      CELERY_BROKER_URL: redis://default:${REDIS_PASSWORD:-knowledge_mapper_redis_pass}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://default:${REDIS_PASSWORD:-knowledge_mapper_redis_pass}@redis:6379/2
+
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
