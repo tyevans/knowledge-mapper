@@ -11,6 +11,7 @@ isolation and are registered with eventsource-py for persistence.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -478,7 +479,7 @@ class ConsolidationCompleted(TenantDomainEvent):
     entities_processed: int = Field(description="Entities processed", ge=0)
     candidates_found: int = Field(description="Candidates found", ge=0)
     auto_merged: int = Field(description="Auto-merges performed", ge=0)
-    completed_at: Optional[str] = Field(
+    completed_at: Optional[datetime] = Field(
         description="Completion timestamp",
         default=None,
     )

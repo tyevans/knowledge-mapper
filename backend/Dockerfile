@@ -19,9 +19,9 @@ RUN apt-get update && \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/* && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 
-ENV PATH="/root/.local/bin:$PATH"
+ENV PATH="/usr/local/bin:$PATH"
 
 
 # Stage 2: Dependencies
@@ -36,6 +36,18 @@ RUN uv sync --frozen --no-dev
 
 # Stage 3: Development image
 FROM dependencies AS development
+
+# Build args for user mapping (defaults to 1000:1000)
+ARG UID=1000
+ARG GID=1000
+
+# Create non-root user matching host UID/GID for proper file permissions
+RUN groupadd -g ${GID} appuser 2>/dev/null || true && \
+    useradd -m -u ${UID} -g ${GID} appuser 2>/dev/null || true && \
+    chown -R ${UID}:${GID} /app
+
+# Switch to non-root user
+USER appuser
 
 # Copy application code
 COPY . .

@@ -1,34 +1,31 @@
 """
 Application context variables for async-safe state management.
 
-Uses Python contextvars to track tenant context across async operations.
-This complements PostgreSQL session variables for application-level tracking.
+Re-exports from eventsource.multitenancy for tenant context propagation.
+This module provides backward-compatible aliases for existing code.
 """
 
-from contextvars import ContextVar
 from uuid import UUID
-from typing import Optional
 
-# Context variable for current tenant ID
-current_tenant_id: ContextVar[Optional[UUID]] = ContextVar(
-    "current_tenant_id",
-    default=None
+from eventsource.multitenancy import (
+    clear_tenant_context,
+    get_current_tenant,
+    get_required_tenant,
+    set_current_tenant as _set_current_tenant,
+    tenant_context as current_tenant_id,
+    tenant_scope,
+    tenant_scope_sync,
 )
 
-
-def get_current_tenant() -> Optional[UUID]:
-    """
-    Get current tenant ID from context.
-
-    Returns:
-        Current tenant UUID or None if not set
-
-    Example:
-        tenant_id = get_current_tenant()
-        if tenant_id:
-            logger.info("operation", tenant_id=str(tenant_id))
-    """
-    return current_tenant_id.get()
+__all__ = [
+    "current_tenant_id",
+    "get_current_tenant",
+    "get_required_tenant",
+    "set_current_tenant",
+    "clear_current_tenant",
+    "tenant_scope",
+    "tenant_scope_sync",
+]
 
 
 def set_current_tenant(tenant_id: UUID) -> None:
@@ -38,19 +35,17 @@ def set_current_tenant(tenant_id: UUID) -> None:
     Args:
         tenant_id: UUID of tenant to set as current
 
-    Example:
-        set_current_tenant(tenant_id)
-        # All logging/tracing will now include tenant_id
+    Note:
+        This is a backward-compatible wrapper that ignores the token return value.
+        For code that needs to restore context, use tenant_scope() or tenant_scope_sync().
     """
-    current_tenant_id.set(tenant_id)
+    _set_current_tenant(tenant_id)
 
 
 def clear_current_tenant() -> None:
     """
     Clear current tenant ID from context.
 
-    Example:
-        clear_current_tenant()
-        # Tenant context removed
+    Alias for clear_tenant_context() for backward compatibility.
     """
-    current_tenant_id.set(None)
+    clear_tenant_context()

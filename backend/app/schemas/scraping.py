@@ -6,13 +6,16 @@ including request validation and response serialization.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.models.scraping_job import JobStatus, JobStage
 from app.models.extracted_entity import ExtractionMethod
+
+# Type alias for extraction strategy
+ExtractionStrategy = Literal["legacy", "auto_detect", "manual"]
 
 # Note: EntityType enum is no longer used in schemas since entity_type is now
 # stored as a string to support dynamic domain-specific types.
@@ -24,7 +27,11 @@ from app.models.extracted_entity import ExtractionMethod
 
 
 class CreateScrapingJobRequest(BaseModel):
-    """Request schema for creating a new scraping job."""
+    """Request schema for creating a new scraping job.
+
+    Supports both legacy extraction (existing LLM extraction) and adaptive
+    extraction strategies (auto_detect or manual domain selection).
+    """
 
     name: str = Field(
         ...,
@@ -83,9 +90,51 @@ class CreateScrapingJobRequest(BaseModel):
         description="Additional Scrapy settings",
     )
 
+    # Adaptive extraction fields
+    extraction_strategy: ExtractionStrategy = Field(
+        default="legacy",
+        description="Extraction strategy: legacy (existing behavior), auto_detect (classify content), or manual (user-specified domain)",
+    )
+    content_domain: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Content domain ID (required for manual strategy, e.g., 'literature_fiction')",
+    )
+    classification_sample_size: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Number of pages to sample for classification (only for auto_detect, 1-5)",
+    )
+
+    @model_validator(mode="after")
+    def validate_extraction_strategy(self) -> "CreateScrapingJobRequest":
+        """Validate content_domain based on extraction_strategy."""
+        if self.extraction_strategy == "manual" and self.content_domain is None:
+            raise ValueError(
+                "content_domain is required when extraction_strategy is 'manual'"
+            )
+
+        if self.extraction_strategy == "legacy" and self.content_domain is not None:
+            raise ValueError(
+                "content_domain should not be set when extraction_strategy is 'legacy'"
+            )
+
+        # Reset sample size to default if not using auto_detect
+        if self.extraction_strategy != "auto_detect" and self.classification_sample_size != 1:
+            # Note: We allow this but it will be ignored
+            pass
+
+        return self
+
 
 class UpdateScrapingJobRequest(BaseModel):
-    """Request schema for updating a scraping job (before it starts)."""
+    """Request schema for updating a scraping job (before it starts).
+
+    Note: extraction_strategy and content_domain cannot be changed after job
+    creation to maintain data consistency. These fields are intentionally
+    not included in this schema.
+    """
 
     name: Optional[str] = Field(
         None,
@@ -115,6 +164,8 @@ class UpdateScrapingJobRequest(BaseModel):
         None,
         description="Use LLM for semantic entity extraction",
     )
+    # Note: extraction_strategy, content_domain, and classification_sample_size
+    # are intentionally excluded - they are immutable after job creation
 
 
 class ScrapingJobSummary(BaseModel):
@@ -127,6 +178,21 @@ class ScrapingJobSummary(BaseModel):
     stage: JobStage | None = Field(None, description="Current pipeline stage")
     pages_crawled: int = Field(..., description="Pages scraped so far")
     entities_extracted: int = Field(..., description="Entities found so far")
+
+    # Adaptive extraction summary fields
+    extraction_strategy: str = Field(
+        default="legacy",
+        description="Extraction strategy being used",
+    )
+    content_domain: Optional[str] = Field(
+        default=None,
+        description="Content domain ID (if using adaptive extraction)",
+    )
+    uses_adaptive_extraction: bool = Field(
+        default=False,
+        description="Whether adaptive extraction is enabled",
+    )
+
     created_at: datetime = Field(..., description="Creation timestamp")
 
     class Config:
@@ -134,7 +200,11 @@ class ScrapingJobSummary(BaseModel):
 
 
 class ScrapingJobResponse(BaseModel):
-    """Full scraping job response."""
+    """Full scraping job response.
+
+    Includes all job configuration, status, progress metrics, and
+    adaptive extraction strategy information.
+    """
 
     id: UUID = Field(..., description="Job ID")
     tenant_id: UUID = Field(..., description="Tenant ID")
@@ -151,6 +221,34 @@ class ScrapingJobResponse(BaseModel):
     use_llm_extraction: bool = Field(..., description="Use LLM extraction")
     extraction_provider_id: Optional[UUID] = Field(None, description="Extraction provider ID")
     custom_settings: dict = Field(..., description="Custom Scrapy settings")
+
+    # Adaptive extraction fields
+    extraction_strategy: str = Field(
+        default="legacy",
+        description="Extraction strategy: legacy, auto_detect, or manual",
+    )
+    content_domain: Optional[str] = Field(
+        default=None,
+        description="Content domain ID (e.g., 'literature_fiction')",
+    )
+    classification_confidence: Optional[float] = Field(
+        default=None,
+        description="Classification confidence score (0.0-1.0, for auto_detect)",
+    )
+    classification_sample_size: int = Field(
+        default=1,
+        description="Pages sampled for classification",
+    )
+    uses_adaptive_extraction: bool = Field(
+        default=False,
+        description="Whether adaptive extraction is enabled (auto_detect or manual)",
+    )
+    is_domain_resolved: bool = Field(
+        default=True,
+        description="Whether the content domain has been determined",
+    )
+
+    # Status and progress
     status: JobStatus = Field(..., description="Current status")
     stage: JobStage | None = Field(None, description="Current pipeline stage")
     celery_task_id: Optional[str] = Field(None, description="Celery task ID")
