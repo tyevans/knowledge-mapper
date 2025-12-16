@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
-from app.api.routers import health, test_auth, auth, oauth, todos, tenants, well_known, scraping, health_extraction, graph, entities, audit, consolidation, extraction_providers
+from app.api.routers import health, test_auth, auth, oauth, todos, tenants, well_known, scraping, health_extraction, graph, entities, audit, consolidation, extraction_providers, domains
 from app.middleware.tenant import TenantResolutionMiddleware
 
 from app.observability import setup_observability
@@ -300,6 +300,7 @@ app.include_router(entities.router, prefix=settings.API_V1_PREFIX)
 app.include_router(audit.router, prefix=settings.API_V1_PREFIX)
 app.include_router(consolidation.router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_providers.router, prefix=settings.API_V1_PREFIX)
+app.include_router(domains.router, prefix=settings.API_V1_PREFIX)
 
 # Well-known endpoints (no API prefix - root level)
 app.include_router(well_known.router)
