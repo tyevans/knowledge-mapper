@@ -1,1 +1,1 @@
-"""Unit tests for event sourcing handlers."""
+"""Tests for event handlers."""

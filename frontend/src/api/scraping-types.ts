@@ -21,6 +21,12 @@ export type JobStatus =
   | 'cancelled'
 
 /**
+ * Job stage enum matching backend JobStage.
+ * Represents the current phase of the scraping pipeline.
+ */
+export type JobStage = 'crawling' | 'extracting' | 'consolidating' | 'done'
+
+/**
  * Entity type enum matching backend EntityType.
  */
 export type EntityType =
@@ -73,6 +79,8 @@ export interface CreateScrapingJobRequest {
   respect_robots_txt?: boolean
   /** Use LLM for semantic entity extraction (default: true) */
   use_llm_extraction?: boolean
+  /** Extraction provider ID (null = use tenant default or global) */
+  extraction_provider_id?: string | null
   /** Additional Scrapy settings */
   custom_settings?: Record<string, unknown>
 }
@@ -105,6 +113,8 @@ export interface ScrapingJobSummary {
   start_url: string
   /** Current status */
   status: JobStatus
+  /** Current pipeline stage */
+  stage: JobStage | null
   /** Pages scraped so far */
   pages_crawled: number
   /** Entities found so far */
@@ -143,10 +153,14 @@ export interface ScrapingJobResponse {
   respect_robots_txt: boolean
   /** Use LLM extraction */
   use_llm_extraction: boolean
+  /** Extraction provider ID */
+  extraction_provider_id: string | null
   /** Custom Scrapy settings */
   custom_settings: Record<string, unknown>
   /** Current status */
   status: JobStatus
+  /** Current pipeline stage */
+  stage: JobStage | null
   /** Celery task ID */
   celery_task_id: string | null
   /** Pages scraped */
@@ -155,6 +169,16 @@ export interface ScrapingJobResponse {
   entities_extracted: number
   /** Error count */
   errors_count: number
+  /** Extraction progress (0.0-1.0) */
+  extraction_progress: number
+  /** Pages pending extraction */
+  pages_pending_extraction: number
+  /** Consolidation progress (0.0-1.0) */
+  consolidation_progress: number
+  /** Candidates found during consolidation */
+  consolidation_candidates_found: number
+  /** Auto-merged entities */
+  consolidation_auto_merged: number
   /** Start time */
   started_at: string | null
   /** Completion time */
@@ -175,12 +199,24 @@ export interface JobStatusResponse {
   job_id: string
   /** Current status */
   status: JobStatus
+  /** Current pipeline stage */
+  stage: JobStage | null
   /** Pages scraped */
   pages_crawled: number
   /** Entities extracted */
   entities_extracted: number
   /** Error count */
   errors_count: number
+  /** Crawl progress (0.0-1.0) */
+  crawl_progress: number | null
+  /** Extraction progress (0.0-1.0) */
+  extraction_progress: number | null
+  /** Consolidation progress (0.0-1.0) */
+  consolidation_progress: number | null
+  /** Candidates found during consolidation */
+  consolidation_candidates_found: number
+  /** Auto-merged entities */
+  consolidation_auto_merged: number
   /** Start time */
   started_at: string | null
   /** Completion time */
@@ -529,3 +565,46 @@ export const EXTRACTION_METHOD_LABELS: Record<ExtractionMethod, string> = {
   spacy: 'spaCy NLP',
   hybrid: 'Hybrid',
 }
+
+/**
+ * Human-readable labels for job stages.
+ */
+export const JOB_STAGE_LABELS: Record<JobStage, string> = {
+  crawling: 'Crawling',
+  extracting: 'Extracting',
+  consolidating: 'Consolidating',
+  done: 'Done',
+}
+
+/**
+ * Icons/emojis for job stages (for stepper UI).
+ */
+export const JOB_STAGE_ICONS: Record<JobStage, string> = {
+  crawling: '🕷️',
+  extracting: '🔍',
+  consolidating: '🔗',
+  done: '✓',
+}
+
+/**
+ * Stage badge colors for job stage.
+ */
+export const JOB_STAGE_COLORS: Record<
+  JobStage,
+  { background: string; color: string; border: string }
+> = {
+  crawling: { background: '#dbeafe', color: '#1e40af', border: '#93c5fd' },
+  extracting: { background: '#fef3c7', color: '#92400e', border: '#fcd34d' },
+  consolidating: { background: '#e0e7ff', color: '#4338ca', border: '#a5b4fc' },
+  done: { background: '#d1fae5', color: '#065f46', border: '#6ee7b7' },
+}
+
+/**
+ * Order of job stages for stepper UI.
+ */
+export const JOB_STAGE_ORDER: JobStage[] = [
+  'crawling',
+  'extracting',
+  'consolidating',
+  'done',
+]

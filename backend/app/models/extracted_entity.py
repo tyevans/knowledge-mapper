@@ -12,19 +12,40 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, Float, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
+
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    # pgvector not installed, create a placeholder
+    Vector = None
 
 from app.core.database import Base
 
+# Embedding dimension for bge-m3 model
+EMBEDDING_DIMENSION = 1024
+
 if TYPE_CHECKING:
+    from app.models.entity_alias import EntityAlias
     from app.models.scraped_page import ScrapedPage
     from app.models.tenant import Tenant
 
 
 class EntityType(str, enum.Enum):
-    """Types of entities that can be extracted."""
+    """Known entity types for validation and documentation.
+
+    Note: As of the Adaptive Extraction Strategy feature, the database stores
+    entity_type as a String(100) to support dynamic domain-specific types.
+    This enum is kept for:
+    - Backward compatibility with existing code
+    - Validation of known/legacy entity types
+    - Type hints and autocomplete in IDEs
+
+    Domain-specific types (e.g., 'character', 'theme', 'plot_point') are stored
+    directly as strings and do not require enum membership.
+    """
 
     # General entity types
     PERSON = "person"
@@ -47,6 +68,37 @@ class EntityType(str, enum.Enum):
     RETURN_TYPE = "return_type"  # Function return types
     EXCEPTION = "exception"  # Exception classes
 
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid known entity type.
+
+        Args:
+            value: Entity type string to check
+
+        Returns:
+            True if the value matches a known EntityType
+        """
+        try:
+            cls(value.lower())
+            return True
+        except ValueError:
+            return False
+
+    @classmethod
+    def get_or_none(cls, value: str) -> "EntityType | None":
+        """Get EntityType enum from string, or None if not a known type.
+
+        Args:
+            value: Entity type string
+
+        Returns:
+            EntityType enum value, or None for domain-specific types
+        """
+        try:
+            return cls(value.lower())
+        except ValueError:
+            return None
+
 
 class ExtractionMethod(str, enum.Enum):
     """How the entity was extracted."""
@@ -55,6 +107,7 @@ class ExtractionMethod(str, enum.Enum):
     OPEN_GRAPH = "open_graph"  # From Open Graph meta tags
     LLM_CLAUDE = "llm_claude"  # Via Claude semantic extraction
     LLM_OLLAMA = "llm_ollama"  # Via local Ollama LLM extraction
+    LLM_OPENAI = "llm_openai"  # Via OpenAI GPT extraction
     PATTERN = "pattern"  # Via regex/pattern matching
     SPACY = "spacy"  # Via spaCy NER fallback
     HYBRID = "hybrid"  # Combination of methods
@@ -118,16 +171,22 @@ class ExtractedEntity(Base):
         comment="Page this entity was extracted from",
     )
 
-    # Entity identification
-    entity_type: Mapped[EntityType] = mapped_column(
-        SQLEnum(
-            EntityType,
-            name="entity_type",
-            values_callable=lambda obj: [e.value for e in obj],
-        ),
+    # Entity type - changed from Enum to String for dynamic domain support
+    # Supports both legacy enum values (person, organization, etc.) and
+    # domain-specific types (character, theme, plot_point, etc.)
+    entity_type: Mapped[str] = mapped_column(
+        String(100),
         nullable=False,
         index=True,
-        comment="Type of entity",
+        comment="Entity type (string, supports legacy enum values and domain-specific types)",
+    )
+
+    # Original entity type tracking for LLM extraction
+    # Stores the raw type from the LLM before normalization, if different
+    original_entity_type: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Original entity type from LLM before normalization (if different)",
     )
 
     name: Mapped[str] = mapped_column(
@@ -216,6 +275,35 @@ class ExtractedEntity(Base):
         comment="When entity was synced to Neo4j",
     )
 
+    # Canonical/alias tracking for entity consolidation
+    is_alias_of: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("extracted_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="If set, this entity is an alias of the canonical entity with this ID",
+    )
+
+    is_canonical: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+        index=True,
+        comment="Whether this is a canonical entity (not an alias)",
+    )
+
+    # Embedding vector for semantic similarity (bge-m3: 1024 dimensions)
+    # Note: This column is added by migration and requires pgvector extension
+    # The type annotation uses Any because Vector type may not be available
+    # if pgvector is not installed
+    if Vector is not None:
+        embedding: Mapped[list[float] | None] = mapped_column(
+            Vector(EMBEDDING_DIMENSION),
+            nullable=True,
+            comment="bge-m3 embedding vector for semantic similarity (1024 dimensions)",
+        )
+
     # Relationships
     tenant: Mapped["Tenant"] = relationship(
         "Tenant",
@@ -246,6 +334,30 @@ class ExtractedEntity(Base):
         doc="Relationships where this entity is the target",
     )
 
+    # Self-referential relationship for canonical entity tracking
+    canonical_entity: Mapped["ExtractedEntity | None"] = relationship(
+        "ExtractedEntity",
+        remote_side="ExtractedEntity.id",
+        foreign_keys=[is_alias_of],
+        back_populates="alias_entities",
+        doc="The canonical entity this is an alias of",
+    )
+
+    alias_entities: Mapped[list["ExtractedEntity"]] = relationship(
+        "ExtractedEntity",
+        foreign_keys="ExtractedEntity.is_alias_of",
+        back_populates="canonical_entity",
+        doc="Entities that are aliases of this canonical entity",
+    )
+
+    # EntityAlias records tracking merged entity names
+    aliases: Mapped[list["EntityAlias"]] = relationship(
+        "EntityAlias",
+        back_populates="canonical_entity",
+        cascade="all, delete-orphan",
+        doc="Aliases that have been merged into this canonical entity",
+    )
+
     def __init__(self, **kwargs):
         """Initialize entity with default values for optional fields."""
         if "id" not in kwargs:
@@ -273,9 +385,23 @@ class ExtractedEntity(Base):
         normalized = " ".join(normalized.split())
         return normalized
 
+    @property
+    def entity_type_enum(self) -> EntityType | None:
+        """Get entity_type as EntityType enum, or None if not a known type.
+
+        Use this property when you need type-safe access to legacy entity types.
+        Returns None for domain-specific types like 'character', 'theme'.
+        """
+        return EntityType.get_or_none(self.entity_type)
+
+    @property
+    def is_known_entity_type(self) -> bool:
+        """Check if entity_type is a known/legacy type from the EntityType enum."""
+        return EntityType.is_valid(self.entity_type)
+
     def __repr__(self) -> str:
         """Return string representation of the entity."""
-        return f"<ExtractedEntity {self.id} '{self.name}' ({self.entity_type.value})>"
+        return f"<ExtractedEntity {self.id} '{self.name}' ({self.entity_type})>"
 
 
 class EntityRelationship(Base):

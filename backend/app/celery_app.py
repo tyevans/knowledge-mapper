@@ -9,11 +9,15 @@ This module configures Celery for handling asynchronous tasks such as:
 All tasks are tenant-aware and maintain proper isolation.
 """
 
+import logging
+import os
+
 from celery import Celery
+from celery.signals import after_setup_logger, after_setup_task_logger
 from kombu import Exchange, Queue
 
 from app.core.config import settings
-
+from app.observability import StructuredJsonFormatter
 
 # Create Celery app
 celery_app = Celery(
@@ -53,6 +57,7 @@ celery_app.conf.update(
         "app.tasks.scraping.*": {"queue": "scraping"},
         "app.tasks.extraction.*": {"queue": "extraction"},
         "app.tasks.graph.*": {"queue": "graph"},
+        "app.tasks.consolidation.*": {"queue": "consolidation"},
     },
 
     # Beat schedule for periodic tasks
@@ -95,6 +100,12 @@ celery_app.conf.task_queues = (
         routing_key="graph",
         queue_arguments={"x-max-priority": 5},
     ),
+    Queue(
+        "consolidation",
+        Exchange("consolidation"),
+        routing_key="consolidation",
+        queue_arguments={"x-max-priority": 5},
+    ),
 )
 
 # Default queue
@@ -105,7 +116,47 @@ celery_app.autodiscover_tasks([
     "app.tasks.scraping",
     "app.tasks.extraction",
     "app.tasks.graph",
+    "app.tasks.consolidation",
 ])
+
+
+# =============================================================================
+# Celery Logging Configuration
+# =============================================================================
+
+def _setup_celery_json_logging(logger: logging.Logger, **kwargs) -> None:
+    """
+    Configure Celery logger to use JSON formatting with extra fields.
+
+    This replaces Celery's default handlers with our StructuredJsonFormatter,
+    ensuring consistent JSON logging across both FastAPI and Celery workers.
+    """
+    is_testing = os.getenv("TESTING", "false").lower() == "true"
+
+    if is_testing:
+        # Keep simple format for tests
+        return
+
+    # Remove all existing handlers
+    logger.handlers.clear()
+
+    # Add our JSON handler
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(StructuredJsonFormatter())
+    logger.addHandler(handler)
+
+
+@after_setup_logger.connect
+def setup_celery_logger(logger: logging.Logger, **kwargs) -> None:
+    """Configure the main Celery logger."""
+    _setup_celery_json_logging(logger, **kwargs)
+
+
+@after_setup_task_logger.connect
+def setup_celery_task_logger(logger: logging.Logger, **kwargs) -> None:
+    """Configure the Celery task logger."""
+    _setup_celery_json_logging(logger, **kwargs)
 
 
 # Task base class with common functionality

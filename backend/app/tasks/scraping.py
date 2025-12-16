@@ -15,7 +15,7 @@ from celery import shared_task
 from sqlalchemy import select, update
 
 from app.worker.context import TenantWorkerContext
-from app.models.scraping_job import JobStatus, ScrapingJob
+from app.models.scraping_job import JobStatus, JobStage, ScrapingJob
 from app.eventsourcing.events.scraping import (
     ScrapingJobStarted,
     ScrapingJobCompleted,
@@ -79,8 +79,9 @@ def run_scraping_job(self, job_id: str, tenant_id: str) -> dict:
             return {"status": "skipped", "message": f"Job in {job.status.value} status"}
 
         try:
-            # Update job to running
+            # Update job to running, stage to crawling
             job.status = JobStatus.RUNNING
+            job.stage = JobStage.CRAWLING
             job.started_at = datetime.now(timezone.utc)
             job.celery_task_id = self.request.id
             job.updated_at = datetime.now(timezone.utc)
@@ -92,29 +93,32 @@ def run_scraping_job(self, job_id: str, tenant_id: str) -> dict:
             # Run the spider
             summary = _run_spider(job, ctx, self)
 
-            # Update job as completed
-            job.status = JobStatus.COMPLETED
-            job.completed_at = datetime.now(timezone.utc)
+            # Spider finished - transition to EXTRACTING stage
+            # Don't mark as COMPLETED yet - extraction and consolidation still need to run
+            job.stage = JobStage.EXTRACTING
+            job.pages_pending_extraction = job.pages_crawled  # All pages need extraction
             job.updated_at = datetime.now(timezone.utc)
             ctx.db.commit()
 
-            # Emit completed event
-            _emit_job_completed_event(job, tenant_id, summary)
+            # Queue extraction monitoring task to track extraction progress
+            # and trigger consolidation when extraction completes
+            from app.tasks.extraction import monitor_extraction_completion
+            monitor_extraction_completion.delay(job_id, tenant_id)
 
             logger.info(
-                "Scraping job completed",
+                "Scraping crawl phase completed, transitioning to extraction",
                 extra={
                     "job_id": job_id,
                     "pages_crawled": job.pages_crawled,
-                    "entities_extracted": job.entities_extracted,
+                    "stage": job.stage.value,
                 },
             )
 
             return {
-                "status": "completed",
+                "status": "crawling_completed",
                 "job_id": job_id,
                 "pages_crawled": job.pages_crawled,
-                "entities_extracted": job.entities_extracted,
+                "stage": "extracting",
             }
 
         except Exception as e:

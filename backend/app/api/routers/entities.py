@@ -74,6 +74,7 @@ async def list_entities(
     extraction_method: Optional[str] = Query(None, description="Filter by extraction method"),
     search: Optional[str] = Query(None, description="Search by name"),
     job_id: Optional[UUID] = Query(None, description="Filter by scraping job ID"),
+    canonical_only: bool = Query(True, description="Only return canonical (non-merged) entities"),
 ) -> PaginatedResponse:
     """
     Get a paginated list of extracted entities.
@@ -87,13 +88,15 @@ async def list_entities(
         ExtractedEntity.tenant_id == tenant_id
     )
 
+    # Filter to canonical entities only (excludes merged duplicates)
+    if canonical_only:
+        query = query.where(ExtractedEntity.is_canonical == True)  # noqa: E712
+
     # Apply filters
     if entity_type:
-        try:
-            type_enum = EntityType(entity_type)
-            query = query.where(ExtractedEntity.entity_type == type_enum)
-        except ValueError:
-            pass  # Ignore invalid types
+        # entity_type is now a string column, so compare directly
+        # Normalize to lowercase for case-insensitive matching
+        query = query.where(ExtractedEntity.entity_type == entity_type.lower())
 
     if extraction_method:
         try:
@@ -182,7 +185,7 @@ async def get_entity(
     "/{entity_id}/relationships",
     response_model=PaginatedResponse,
     summary="Get entity relationships",
-    description="Get all relationships for a specific entity.",
+    description="Get all relationships for a specific entity, including relationships from merged duplicates.",
 )
 async def get_entity_relationships(
     entity_id: UUID,
@@ -195,7 +198,7 @@ async def get_entity_relationships(
         description="Relationship direction: 'outgoing', 'incoming', or 'both'",
     ),
 ) -> PaginatedResponse:
-    """Get all relationships for a specific entity."""
+    """Get all relationships for a specific entity, including from merged duplicates."""
     tenant_id = UUID(user.tenant_id)
 
     # Verify entity exists
@@ -205,11 +208,30 @@ async def get_entity_relationships(
             ExtractedEntity.tenant_id == tenant_id,
         )
     )
-    if not entity_result.scalar_one_or_none():
+    entity = entity_result.scalar_one_or_none()
+    if not entity:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Entity not found",
         )
+
+    # If this is a canonical entity, also include relationships from merged entities
+    entity_ids_to_query = [entity_id]
+    merged_to_canonical: dict[UUID, UUID] = {}
+
+    if entity.is_canonical:
+        # Find all entities merged into this one
+        merged_result = await db.execute(
+            select(ExtractedEntity.id).where(
+                ExtractedEntity.tenant_id == tenant_id,
+                ExtractedEntity.is_alias_of == entity_id,
+            )
+        )
+        merged_ids = [row[0] for row in merged_result.all()]
+        entity_ids_to_query.extend(merged_ids)
+        # Build mapping for remapping
+        for mid in merged_ids:
+            merged_to_canonical[mid] = entity_id
 
     # Build relationship query based on direction
     base_query = select(EntityRelationship).where(
@@ -217,13 +239,17 @@ async def get_entity_relationships(
     )
 
     if direction == "outgoing":
-        base_query = base_query.where(EntityRelationship.source_entity_id == entity_id)
+        base_query = base_query.where(
+            EntityRelationship.source_entity_id.in_(entity_ids_to_query)
+        )
     elif direction == "incoming":
-        base_query = base_query.where(EntityRelationship.target_entity_id == entity_id)
+        base_query = base_query.where(
+            EntityRelationship.target_entity_id.in_(entity_ids_to_query)
+        )
     else:  # both
         base_query = base_query.where(
-            (EntityRelationship.source_entity_id == entity_id) |
-            (EntityRelationship.target_entity_id == entity_id)
+            (EntityRelationship.source_entity_id.in_(entity_ids_to_query)) |
+            (EntityRelationship.target_entity_id.in_(entity_ids_to_query))
         )
 
     # Get total count
@@ -240,27 +266,59 @@ async def get_entity_relationships(
     relationships = result.scalars().all()
 
     # Get related entity names for enrichment
-    entity_ids = set()
+    related_entity_ids = set()
     for rel in relationships:
-        entity_ids.add(rel.source_entity_id)
-        entity_ids.add(rel.target_entity_id)
+        related_entity_ids.add(rel.source_entity_id)
+        related_entity_ids.add(rel.target_entity_id)
 
     entities_result = await db.execute(
-        select(ExtractedEntity).where(ExtractedEntity.id.in_(entity_ids))
+        select(ExtractedEntity).where(ExtractedEntity.id.in_(related_entity_ids))
     )
     entities_map = {e.id: e for e in entities_result.scalars().all()}
 
-    # Convert to response format
+    # Also load canonical entities for any merged entities in relationships
+    # so we can show the canonical name instead
+    canonical_ids_needed = set()
+    for eid, ent in entities_map.items():
+        if not ent.is_canonical and ent.is_alias_of:
+            canonical_ids_needed.add(ent.is_alias_of)
+            merged_to_canonical[eid] = ent.is_alias_of
+
+    if canonical_ids_needed:
+        canonical_result = await db.execute(
+            select(ExtractedEntity).where(ExtractedEntity.id.in_(canonical_ids_needed))
+        )
+        for e in canonical_result.scalars().all():
+            entities_map[e.id] = e
+
+    # Convert to response format, remapping merged entities to canonical
     items = []
+    seen_relationships: set[tuple[UUID, UUID, str]] = set()  # Deduplicate
+
     for rel in relationships:
-        source = entities_map.get(rel.source_entity_id)
-        target = entities_map.get(rel.target_entity_id)
+        # Remap to canonical entity IDs
+        source_id = merged_to_canonical.get(rel.source_entity_id, rel.source_entity_id)
+        target_id = merged_to_canonical.get(rel.target_entity_id, rel.target_entity_id)
+
+        # Skip self-loops from merging
+        if source_id == target_id:
+            continue
+
+        # Deduplicate
+        rel_key = (source_id, target_id, rel.relationship_type)
+        if rel_key in seen_relationships:
+            continue
+        seen_relationships.add(rel_key)
+
+        # Get entity info (prefer canonical)
+        source = entities_map.get(source_id) or entities_map.get(rel.source_entity_id)
+        target = entities_map.get(target_id) or entities_map.get(rel.target_entity_id)
 
         items.append(
             EntityRelationshipResponse(
                 id=rel.id,
-                source_entity_id=rel.source_entity_id,
-                target_entity_id=rel.target_entity_id,
+                source_entity_id=source_id,
+                target_entity_id=target_id,
                 relationship_type=rel.relationship_type,
                 properties=rel.properties or {},
                 confidence_score=rel.confidence_score,

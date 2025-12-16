@@ -2,6 +2,8 @@ import { LitElement, html, css } from 'lit'
 import { customElement, property, state } from 'lit/decorators.js'
 import { apiClient } from '../../api/client'
 import type { CreateScrapingJobRequest, ScrapingJobResponse } from '../../api/scraping-types'
+import type { ExtractionProviderResponse } from '../../api/extraction-provider-types'
+import { PROVIDER_TYPE_LABELS } from '../../api/extraction-provider-types'
 
 /**
  * Modal for creating a new scraping job.
@@ -250,6 +252,34 @@ export class ScrapingJobCreateModal extends LitElement {
 
   @state()
   private showAdvanced = false
+
+  @state()
+  private extractionProviders: ExtractionProviderResponse[] = []
+
+  @state()
+  private providersLoading = false
+
+  updated(changedProperties: Map<string, unknown>): void {
+    if (changedProperties.has('open') && this.open) {
+      this.loadProviders()
+    }
+  }
+
+  private async loadProviders(): Promise<void> {
+    this.providersLoading = true
+    try {
+      const response = await apiClient.get<ExtractionProviderResponse[]>(
+        '/api/v1/extraction-providers'
+      )
+      if (response.success) {
+        this.extractionProviders = response.data.filter((p) => p.is_active)
+      }
+    } catch {
+      // Silently fail - providers are optional
+    } finally {
+      this.providersLoading = false
+    }
+  }
 
   private handleClose(): void {
     this.resetForm()
@@ -588,9 +618,49 @@ export class ScrapingJobCreateModal extends LitElement {
                           <label for="use_llm">Use LLM Extraction</label>
                         </div>
                         <div class="form-hint" style="margin-left: 1.5rem;">
-                          Enable AI-powered entity extraction (uses Claude API)
+                          Enable AI-powered entity extraction
                         </div>
                       </div>
+
+                      ${this.formData.use_llm_extraction
+                        ? html`
+                            <div class="form-group">
+                              <label class="form-label">Extraction Provider</label>
+                              <select
+                                class="form-input"
+                                .value=${this.formData.extraction_provider_id || ''}
+                                @change=${(e: Event) => {
+                                  const value = (e.target as HTMLSelectElement).value
+                                  this.handleInputChange(
+                                    'extraction_provider_id',
+                                    value || null
+                                  )
+                                }}
+                                ?disabled=${this.isSubmitting || this.providersLoading}
+                              >
+                                <option value="">
+                                  ${this.providersLoading
+                                    ? 'Loading providers...'
+                                    : 'Default (Ollama)'}
+                                </option>
+                                ${this.extractionProviders.map(
+                                  (p) => html`
+                                    <option value=${p.id}>
+                                      ${p.name} (${PROVIDER_TYPE_LABELS[p.provider_type]})
+                                      ${p.is_default ? ' - Default' : ''}
+                                    </option>
+                                  `
+                                )}
+                              </select>
+                              <div class="form-hint">
+                                Select a provider or use the default.
+                                <a href="/settings/extraction-providers" style="color: #1e3a8a;">
+                                  Manage providers
+                                </a>
+                              </div>
+                            </div>
+                          `
+                        : null}
                     </div>
                   `
                 : null}

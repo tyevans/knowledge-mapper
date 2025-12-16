@@ -9,6 +9,13 @@ import type {
   ExtractedEntitySummary,
   PaginatedResponse,
   JobStatus,
+  JobStage,
+} from '../../api/scraping-types'
+import {
+  JOB_STAGE_LABELS,
+  JOB_STAGE_ICONS,
+  JOB_STAGE_COLORS,
+  JOB_STAGE_ORDER,
 } from '../../api/scraping-types'
 import '../shared/km-pagination'
 import '../shared/km-status-badge'
@@ -175,6 +182,96 @@ export class ScrapingJobDetail extends LitElement {
       font-size: 0.75rem;
       margin-top: 0.25rem;
       opacity: 0.8;
+    }
+
+    /* Progress Stepper */
+    .stage-stepper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 1.5rem 0;
+      padding: 0 1rem;
+    }
+
+    .stage-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      flex: 1;
+    }
+
+    .stage-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 1.25rem;
+      left: 60%;
+      width: 80%;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.3);
+      z-index: 0;
+    }
+
+    .stage-step.completed:not(:last-child)::after {
+      background: #10b981;
+    }
+
+    .stage-step.active:not(:last-child)::after {
+      background: linear-gradient(90deg, #10b981 50%, rgba(255, 255, 255, 0.3) 50%);
+    }
+
+    .stage-icon {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      position: relative;
+      z-index: 1;
+      transition: all 0.3s ease;
+    }
+
+    .stage-step.completed .stage-icon {
+      background: #10b981;
+      border-color: #10b981;
+    }
+
+    .stage-step.active .stage-icon {
+      border-color: #fcd34d;
+      box-shadow: 0 0 0 4px rgba(252, 211, 77, 0.3);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(252, 211, 77, 0.3);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(252, 211, 77, 0.1);
+      }
+    }
+
+    .stage-label {
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stage-step.completed .stage-label,
+    .stage-step.active .stage-label {
+      opacity: 1;
+    }
+
+    .stage-progress {
+      font-size: 0.65rem;
+      opacity: 0.6;
+      margin-top: 0.25rem;
     }
 
     .tabs {
@@ -362,6 +459,24 @@ export class ScrapingJobDetail extends LitElement {
   @state()
   private entitiesPages = 1
 
+  @state()
+  private currentStage: JobStage | null = null
+
+  @state()
+  private crawlProgress = 0
+
+  @state()
+  private extractionProgress = 0
+
+  @state()
+  private consolidationProgress = 0
+
+  @state()
+  private consolidationCandidatesFound = 0
+
+  @state()
+  private consolidationAutoMerged = 0
+
   private unsubscribe?: () => void
   private pollInterval: number | null = null
   private readonly pageSize = 20
@@ -407,6 +522,15 @@ export class ScrapingJobDetail extends LitElement {
 
       if (response.success) {
         this.job = response.data
+        this.currentStage = response.data.stage
+        this.extractionProgress = response.data.extraction_progress || 0
+        this.consolidationProgress = response.data.consolidation_progress || 0
+        this.consolidationCandidatesFound = response.data.consolidation_candidates_found || 0
+        this.consolidationAutoMerged = response.data.consolidation_auto_merged || 0
+        // Calculate crawl progress
+        if (response.data.max_pages > 0) {
+          this.crawlProgress = response.data.pages_crawled / response.data.max_pages
+        }
         this.startPollingIfNeeded()
         await this.loadTabContent()
       } else {
@@ -422,7 +546,13 @@ export class ScrapingJobDetail extends LitElement {
   private startPollingIfNeeded(): void {
     this.stopPolling()
 
-    if (this.job && ['running', 'queued'].includes(this.job.status)) {
+    // Poll while job is running/queued OR if stage is not 'done'
+    const shouldPoll =
+      this.job &&
+      (['running', 'queued'].includes(this.job.status) ||
+        (this.currentStage && this.currentStage !== 'done'))
+
+    if (shouldPoll) {
       this.pollInterval = window.setInterval(() => this.pollStatus(), 3000)
     }
   }
@@ -446,6 +576,7 @@ export class ScrapingJobDetail extends LitElement {
         this.job = {
           ...this.job,
           status: response.data.status,
+          stage: response.data.stage,
           pages_crawled: response.data.pages_crawled,
           entities_extracted: response.data.entities_extracted,
           errors_count: response.data.errors_count,
@@ -454,8 +585,17 @@ export class ScrapingJobDetail extends LitElement {
           error_message: response.data.error_message,
         }
 
-        // Stop polling if job is no longer running
-        if (!['running', 'queued'].includes(response.data.status)) {
+        // Update stage-specific progress
+        this.currentStage = response.data.stage
+        this.crawlProgress = response.data.crawl_progress || 0
+        this.extractionProgress = response.data.extraction_progress || 0
+        this.consolidationProgress = response.data.consolidation_progress || 0
+        this.consolidationCandidatesFound = response.data.consolidation_candidates_found || 0
+        this.consolidationAutoMerged = response.data.consolidation_auto_merged || 0
+
+        // Stop polling if job is done or no longer running
+        const isDone = response.data.stage === 'done' || !['running', 'queued'].includes(response.data.status)
+        if (isDone) {
           this.stopPolling()
           await this.loadTabContent()
         }
@@ -611,6 +751,25 @@ export class ScrapingJobDetail extends LitElement {
 
   private getProgress(): number {
     if (!this.job) return 0
+
+    // If we have stage info, use weighted progress
+    if (this.currentStage) {
+      switch (this.currentStage) {
+        case 'crawling':
+          // Crawling is 0-40%
+          return Math.min(40, this.crawlProgress * 40)
+        case 'extracting':
+          // Extraction is 40-70%
+          return 40 + Math.min(30, this.extractionProgress * 30)
+        case 'consolidating':
+          // Consolidation is 70-100%
+          return 70 + Math.min(30, this.consolidationProgress * 30)
+        case 'done':
+          return 100
+      }
+    }
+
+    // Fallback to basic crawl progress for jobs without stage info
     if (this.job.max_pages === 0) return 0
     return Math.min(100, (this.job.pages_crawled / this.job.max_pages) * 100)
   }
@@ -646,6 +805,66 @@ export class ScrapingJobDetail extends LitElement {
               </button>
             `
           : null}
+      </div>
+    `
+  }
+
+  private getStageProgress(stage: JobStage): string {
+    switch (stage) {
+      case 'crawling':
+        return `${(this.crawlProgress * 100).toFixed(0)}%`
+      case 'extracting':
+        return `${(this.extractionProgress * 100).toFixed(0)}%`
+      case 'consolidating':
+        if (this.consolidationCandidatesFound > 0) {
+          return `${this.consolidationCandidatesFound} found`
+        }
+        return `${(this.consolidationProgress * 100).toFixed(0)}%`
+      case 'done':
+        return ''
+      default:
+        return ''
+    }
+  }
+
+  private getStageClass(stage: JobStage): string {
+    if (!this.currentStage) return ''
+
+    const currentIndex = JOB_STAGE_ORDER.indexOf(this.currentStage)
+    const stageIndex = JOB_STAGE_ORDER.indexOf(stage)
+
+    if (stageIndex < currentIndex) {
+      return 'completed'
+    } else if (stageIndex === currentIndex) {
+      return 'active'
+    }
+    return ''
+  }
+
+  private renderProgressStepper() {
+    // Only show stepper when job is running or has completed with stage info
+    if (!this.job || !this.currentStage) {
+      return null
+    }
+
+    // Don't show stepper for pending/queued jobs
+    if (['pending', 'queued'].includes(this.job.status)) {
+      return null
+    }
+
+    return html`
+      <div class="stage-stepper">
+        ${JOB_STAGE_ORDER.map(
+          (stage) => html`
+            <div class="stage-step ${this.getStageClass(stage)}">
+              <div class="stage-icon">${JOB_STAGE_ICONS[stage]}</div>
+              <span class="stage-label">${JOB_STAGE_LABELS[stage]}</span>
+              ${this.getStageClass(stage) === 'active'
+                ? html`<span class="stage-progress">${this.getStageProgress(stage)}</span>`
+                : null}
+            </div>
+          `
+        )}
       </div>
     `
   }
@@ -840,18 +1059,31 @@ export class ScrapingJobDetail extends LitElement {
               <div class="stat-value">${this.job.errors_count}</div>
               <div class="stat-label">Errors</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-value">${this.job.crawl_depth}</div>
-              <div class="stat-label">Max Depth</div>
-            </div>
+            ${this.consolidationCandidatesFound > 0
+              ? html`
+                  <div class="stat-card">
+                    <div class="stat-value">${this.consolidationCandidatesFound}</div>
+                    <div class="stat-label">Candidates</div>
+                  </div>
+                `
+              : html`
+                  <div class="stat-card">
+                    <div class="stat-value">${this.job.crawl_depth}</div>
+                    <div class="stat-label">Max Depth</div>
+                  </div>
+                `}
           </div>
+
+          ${this.renderProgressStepper()}
 
           <div class="progress-section">
             <div class="progress-bar">
               <div class="progress-fill" style="width: ${progress}%"></div>
             </div>
             <div class="progress-text">
-              ${this.job.pages_crawled} / ${this.job.max_pages} pages (${progress.toFixed(1)}%)
+              ${this.currentStage
+                ? html`${JOB_STAGE_LABELS[this.currentStage]}: ${progress.toFixed(0)}% overall`
+                : html`${this.job.pages_crawled} / ${this.job.max_pages} pages (${progress.toFixed(1)}%)`}
             </div>
           </div>
 

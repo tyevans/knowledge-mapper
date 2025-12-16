@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.extraction_provider import ExtractionProvider
     from app.models.scraped_page import ScrapedPage
     from app.models.tenant import Tenant
 
@@ -33,6 +34,15 @@ class JobStatus(str, enum.Enum):
     COMPLETED = "completed"  # Finished successfully
     FAILED = "failed"  # Terminated with error
     CANCELLED = "cancelled"  # User-cancelled
+
+
+class JobStage(str, enum.Enum):
+    """Enumeration of scraping job pipeline stages."""
+
+    CRAWLING = "crawling"  # Spider is actively fetching pages
+    EXTRACTING = "extracting"  # Entity extraction in progress
+    CONSOLIDATING = "consolidating"  # Entity consolidation running
+    DONE = "done"  # All stages complete
 
 
 class ScrapingJob(Base):
@@ -171,6 +181,14 @@ class ScrapingJob(Base):
         comment="Use LLM for semantic entity extraction",
     )
 
+    extraction_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("extraction_providers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Provider to use for extraction (null = use default/global)",
+    )
+
     custom_settings: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
@@ -197,6 +215,67 @@ class ScrapingJob(Base):
         String(255),
         nullable=True,
         comment="Celery task ID for job control",
+    )
+
+    # Stage tracking
+    stage: Mapped[JobStage] = mapped_column(
+        SQLEnum(
+            JobStage,
+            name="job_stage",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        default=JobStage.CRAWLING,
+        insert_default=JobStage.CRAWLING,
+        index=True,
+        comment="Current stage within the job lifecycle",
+    )
+
+    consolidation_task_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Celery task ID for consolidation job",
+    )
+
+    # Stage progress tracking
+    extraction_progress: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        insert_default=0.0,
+        comment="Extraction progress (0.0-1.0)",
+    )
+
+    consolidation_progress: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        insert_default=0.0,
+        comment="Consolidation progress (0.0-1.0)",
+    )
+
+    pages_pending_extraction: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        insert_default=0,
+        comment="Pages awaiting entity extraction",
+    )
+
+    consolidation_candidates_found: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        insert_default=0,
+        comment="Number of merge candidates identified",
+    )
+
+    consolidation_auto_merged: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        insert_default=0,
+        comment="Number of auto-merged entity pairs",
     )
 
     # Progress metrics
@@ -257,6 +336,12 @@ class ScrapingJob(Base):
         doc="Pages scraped by this job",
     )
 
+    extraction_provider: Mapped["ExtractionProvider | None"] = relationship(
+        "ExtractionProvider",
+        back_populates="scraping_jobs",
+        doc="Extraction provider to use for this job",
+    )
+
     def __init__(self, **kwargs):
         """Initialize job with default values for optional fields."""
         if "id" not in kwargs:
@@ -267,11 +352,13 @@ class ScrapingJob(Base):
             kwargs["custom_settings"] = {}
         if "status" not in kwargs:
             kwargs["status"] = JobStatus.PENDING
+        if "stage" not in kwargs:
+            kwargs["stage"] = JobStage.CRAWLING
         super().__init__(**kwargs)
 
     def __repr__(self) -> str:
         """Return string representation of the job."""
-        return f"<ScrapingJob {self.id} '{self.name}' ({self.status.value})>"
+        return f"<ScrapingJob {self.id} '{self.name}' ({self.status.value}, {self.stage.value})>"
 
     @property
     def is_active(self) -> bool:

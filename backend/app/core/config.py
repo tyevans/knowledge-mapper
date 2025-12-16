@@ -213,8 +213,51 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT: int = 300  # Request timeout in seconds (5 min for large models)
     OLLAMA_MAX_RETRIES: int = 3  # Max retry attempts on failure
     OLLAMA_RATE_LIMIT_RPM: int = 30  # Requests per minute per tenant
-    OLLAMA_MAX_CONTEXT_LENGTH: int = 4000  # Max content characters to send (reduced for stability)
+    OLLAMA_MAX_CONTEXT_LENGTH: int = 64000  # Max content characters to send
     OLLAMA_TEMPERATURE: float = 0.1  # Low temperature for deterministic extraction
+
+    # ==========================================================================
+    # Embedding Configuration (Ollama with bge-m3)
+    # Used for semantic similarity in entity consolidation
+    # ==========================================================================
+
+    OLLAMA_EMBEDDING_MODEL: str = "bge-m3:latest"  # Embedding model name
+    OLLAMA_EMBEDDING_TIMEOUT: float = 30.0  # Request timeout in seconds
+    EMBEDDING_DIMENSION: int = 1024  # bge-m3 produces 1024-dimensional vectors
+    EMBEDDING_BATCH_SIZE: int = 32  # Batch size for embedding computation
+    EMBEDDING_CACHE_TTL: int = 604800  # Cache TTL in seconds (7 days)
+
+    # ==========================================================================
+    # Text Preprocessing Configuration
+    # Content preprocessing and chunking before LLM extraction
+    # Modular architecture with swappable preprocessors, chunkers, and mergers
+    # ==========================================================================
+
+    # Master toggles
+    PREPROCESSING_ENABLED: bool = True  # Enable content preprocessing pipeline
+    CHUNKING_ENABLED: bool = True  # Enable document chunking
+
+    # Preprocessor settings
+    # Options: "trafilatura" (default), "passthrough"
+    PREPROCESSOR_TYPE: str = "trafilatura"
+    PREPROCESSOR_FAVOR_RECALL: bool = True  # Prioritize getting more content
+    PREPROCESSOR_INCLUDE_TABLES: bool = True  # Include table content
+
+    # Chunker settings
+    # Options: "sliding_window" (default)
+    CHUNKER_TYPE: str = "sliding_window"
+    CHUNK_SIZE: int = 8000  # Maximum characters per chunk
+    CHUNK_OVERLAP: int = 200  # Characters of overlap between chunks
+    MAX_CHUNKS_PER_DOCUMENT: int = 200  # Safety limit
+
+    # Entity merger settings
+    # Options: "simple", "llm" (default)
+    ENTITY_MERGING_ENABLED: bool = True  # Enable cross-chunk entity merging
+    MERGER_TYPE: str = "llm"  # Use LLM for ambiguous resolution
+    MERGER_HIGH_SIMILARITY_THRESHOLD: float = 0.90  # Auto-merge threshold
+    MERGER_LOW_SIMILARITY_THRESHOLD: float = 0.70  # Min for LLM consideration
+    MERGER_USE_LLM: bool = True  # Use LLM for ambiguous cases
+    MERGER_LLM_BATCH_SIZE: int = 10  # Candidates per LLM call
 
     # ==========================================================================
     # Encryption Configuration

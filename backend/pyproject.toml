@@ -32,6 +32,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.30.0,<2.0.0",
     "opentelemetry-instrumentation-fastapi>=0.51b0,<1.0.0",
     "prometheus-client>=0.21.1,<1.0.0",
+    "python-json-logger>=2.0.0",
     "eventsource-py[all]>=0.4.0",
     # Task Queue (Celery)
     "celery[redis]==5.4.0",
@@ -42,11 +43,23 @@ dependencies = [
     "neo4j==5.27.0",
     # LLM Integration (Anthropic Claude)
     "anthropic==0.42.0",
+    # LLM Integration (OpenAI)
+    "openai>=1.50.0",
     # Entity Extraction
     "extruct==0.18.0",
     "spacy>=3.7.0,<4.0.0",
     "ollama>=0.6.1",
     "pydantic-ai>=0.0.31",
+    # Content Preprocessing (boilerplate removal)
+    "trafilatura>=1.12.0",
+    # String Similarity (for entity consolidation)
+    "jellyfish>=1.0.0",
+    # PostgreSQL Vector Extension (for semantic similarity)
+    "pgvector>=0.2.0",
+    # Async HTTP client (for Ollama API)
+    "httpx>=0.25.0",
+    # Numerical computing (for embeddings)
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]

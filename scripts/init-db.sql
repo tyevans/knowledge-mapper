@@ -6,6 +6,9 @@
 -- ========================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- pgvector for semantic similarity search (entity consolidation)
+-- Note: pgvector must be installed in the PostgreSQL container
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ========================================
 -- STEP 2: Create Database Roles

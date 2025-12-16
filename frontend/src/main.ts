@@ -2,10 +2,10 @@ import { initObservability } from './observability'
 import { LitElement, html, css } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import './components/health-check'
+import './components/dashboard/dashboard-home'
 import './components/login-button'
 import './components/auth-callback'
 import './components/user-profile'
-import './components/todo-list'
 import './components/tenant-list'
 import './components/tenant-selector'
 import './components/tenant-switcher'
@@ -17,6 +17,11 @@ import './components/entities/entity-explorer'
 import './components/entities/entity-detail'
 // Graph components
 import './components/graph/knowledge-graph-viewer'
+import './components/graph/knowledge-graph-page'
+// Consolidation components
+import './components/consolidation/km-consolidation-dashboard'
+// Settings components
+import './components/extraction-providers/extraction-providers-page'
 import './style.css'
 
 // Initialize observability before any other code runs
@@ -33,6 +38,8 @@ type Route =
   | 'entities'
   | 'entity-detail'
   | 'knowledge-graph'
+  | 'consolidation'
+  | 'settings-providers'
 
 interface RouteParams {
   jobId?: string
@@ -77,11 +84,6 @@ export class AppRoot extends LitElement {
       font-size: 1.5rem;
       font-weight: bold;
       color: white;
-    }
-
-    .subtitle {
-      color: #9ca3af;
-      font-size: 0.875rem;
     }
 
     .nav {
@@ -174,6 +176,10 @@ export class AppRoot extends LitElement {
     } else if (path.match(/^\/knowledge-graph\/[0-9a-f-]+$/i)) {
       this.currentRoute = 'knowledge-graph'
       this.routeParams.entityId = path.split('/')[2]
+    } else if (path === '/consolidation') {
+      this.currentRoute = 'consolidation'
+    } else if (path === '/settings/extraction-providers') {
+      this.currentRoute = 'settings-providers'
     } else {
       this.currentRoute = 'home'
     }
@@ -194,6 +200,9 @@ export class AppRoot extends LitElement {
         break
       case 'knowledge-graph':
         path = params?.entityId ? `/knowledge-graph/${params.entityId}` : '/knowledge-graph'
+        break
+      case 'settings-providers':
+        path = '/settings/extraction-providers'
         break
       default:
         path = `/${route}`
@@ -233,6 +242,18 @@ export class AppRoot extends LitElement {
           @click=${() => this.navigate('knowledge-graph')}
         >
           Graph
+        </span>
+        <span
+          class="nav-link ${this.currentRoute === 'consolidation' ? 'active' : ''}"
+          @click=${() => this.navigate('consolidation')}
+        >
+          Consolidation
+        </span>
+        <span
+          class="nav-link ${this.currentRoute === 'settings-providers' ? 'active' : ''}"
+          @click=${() => this.navigate('settings-providers')}
+        >
+          Settings
         </span>
         <div class="nav-separator"></div>
         <span
@@ -310,24 +331,25 @@ export class AppRoot extends LitElement {
           ></entity-detail>
         `
 
-      case 'knowledge-graph':
+      // Note: 'knowledge-graph' case is handled in render() as full-viewport
+
+      case 'consolidation':
         return html`
-          <h1 class="page-title">Knowledge Graph</h1>
-          <knowledge-graph-viewer
-            .centerId=${this.routeParams.entityId || ''}
+          <h1 class="page-title">Entity Consolidation</h1>
+          <km-consolidation-dashboard
             @view-entity=${(e: CustomEvent) => this.navigate('entity-detail', { entityId: e.detail.entityId })}
-          ></knowledge-graph-viewer>
+          ></km-consolidation-dashboard>
+        `
+
+      case 'settings-providers':
+        return html`
+          <h1 class="page-title">Settings</h1>
+          <extraction-providers-page></extraction-providers-page>
         `
 
       case 'home':
       default:
-        return html`
-          <h1 class="page-title">Todo Application</h1>
-          <div class="grid">
-            <health-check></health-check>
-            <todo-list></todo-list>
-          </div>
-        `
+        return html`<dashboard-home></dashboard-home>`
     }
   }
 
@@ -341,12 +363,22 @@ export class AppRoot extends LitElement {
       return html`<tenant-selector></tenant-selector>`
     }
 
+    // Knowledge graph page has its own full-viewport layout
+    if (this.currentRoute === 'knowledge-graph') {
+      return html`
+        <knowledge-graph-page
+          .centerId=${this.routeParams.entityId || ''}
+          @back=${() => this.navigate('home')}
+          @view-entity=${(e: CustomEvent) => this.navigate('entity-detail', { entityId: e.detail.entityId })}
+        ></knowledge-graph-page>
+      `
+    }
+
     return html`
       <div class="header">
         <div class="header-content">
           <div class="logo-section">
             <div class="logo">Knowledge Mapper</div>
-            <div class="subtitle">Frontend Application</div>
           </div>
           ${this.renderNav()}
         </div>

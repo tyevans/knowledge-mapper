@@ -19,17 +19,32 @@ Models:
     - EntityType: Enum of entity types
     - ExtractionMethod: Enum of extraction methods
     - EntityRelationship: Relationship between entities
+    - ExtractionProvider: Extraction provider configuration (OpenAI, Ollama, etc.)
+    - ExtractionProviderType: Enum of extraction provider types
     - InferenceProvider: LLM inference provider configuration
     - InferenceProviderType: Enum of inference provider types
     - InferenceRequest: Inference request history (projection)
     - InferenceStatus: Enum of inference request statuses
 """
 
+from app.models.consolidation_config import (
+    ConsolidationConfig,
+    DEFAULT_AUTO_MERGE_THRESHOLD,
+    DEFAULT_FEATURE_WEIGHTS,
+    DEFAULT_REVIEW_THRESHOLD,
+)
+from app.models.entity_alias import EntityAlias
 from app.models.extracted_entity import (
     EntityRelationship,
     EntityType,
     ExtractedEntity,
     ExtractionMethod,
+)
+from app.models.merge_history import MergeEventType, MergeHistory
+from app.models.merge_review_queue import MergeReviewItem, MergeReviewStatus
+from app.models.extraction_provider import (
+    ExtractionProvider,
+    ExtractionProviderType,
 )
 from app.models.inference_provider import (
     InferenceProvider,
@@ -59,6 +74,19 @@ __all__ = [
     "EntityType",
     "ExtractionMethod",
     "EntityRelationship",
+    # Consolidation models
+    "ConsolidationConfig",
+    "DEFAULT_AUTO_MERGE_THRESHOLD",
+    "DEFAULT_FEATURE_WEIGHTS",
+    "DEFAULT_REVIEW_THRESHOLD",
+    "EntityAlias",
+    "MergeEventType",
+    "MergeHistory",
+    "MergeReviewItem",
+    "MergeReviewStatus",
+    # Extraction provider models
+    "ExtractionProvider",
+    "ExtractionProviderType",
     # Inference models
     "InferenceProvider",
     "InferenceProviderType",

@@ -769,7 +769,7 @@ main() {
     echo -e "${GREEN}=== Creating Platform Admin User ===${NC}"
     # Create platform admin with tenant management scopes
     # tenant_id is set to a special "platform" UUID (all zeros)
-    create_platform_admin_user "platform-admin" "platform-admin@example.com" "admin123" "Platform" "Administrator" "openid profile email tenants/read tenants/manage tenants/stores admin"
+    create_platform_admin_user "platform-admin" "platform-admin@example.com" "admin123" "Platform" "Administrator" "openid profile email tenants/read tenants/manage tenants/stores admin consolidation/read consolidation/write consolidation/admin"
 
     echo ""
     echo -e "${GREEN}=== Creating Test Users ===${NC}"
@@ -829,7 +829,7 @@ EOF
     echo -e "  Username: platform-admin"
     echo -e "  Email: platform-admin@example.com"
     echo -e "  Password: admin123"
-    echo -e "  Scopes: tenants/read tenants/manage tenants/stores admin"
+    echo -e "  Scopes: tenants/read tenants/manage tenants/stores admin consolidation/*"
     echo ""
     echo -e "${YELLOW}Playwright API test users (see playwright/tests/test-users.ts):${NC}"
     echo -e "  admin / admin123       (roles: user, admin)"
